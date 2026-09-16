@@ -10,7 +10,7 @@ import { soundPlayer } from './lib/audio';
 import { checkIsSimilarPost } from './lib/similarity';
 import { computeCurrentLikesForPost } from './lib/likesEngine';
 import { computeCurrentCommentsForPost } from './lib/commentsEngine';
-import { startAutoPublishEngine, stopAutoPublishEngine } from './lib/autoPublisher';
+import { startAutoPublishEngine, stopAutoPublishEngine, checkAndBackfillOfflinePosts } from './lib/autoPublisher';
 import {
   getOrCreateAnonymousToken,
   getSoundPreference,
@@ -168,6 +168,8 @@ export default function App() {
             commentsCount: computeCurrentCommentsForPost(p),
           }));
           setPosts(processed);
+          // Auto-backfill any missed posts generated during offline periods when tab was closed
+          checkAndBackfillOfflinePosts(realtimePosts);
         }
       },
       (err) => {

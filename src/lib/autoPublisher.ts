@@ -1,4 +1,5 @@
 import { createSerialPost } from './firebase';
+import { SerialPost } from '../types';
 
 interface AutoPostItem {
   content: string;
@@ -279,5 +280,57 @@ export function stopAutoPublishEngine() {
   if (autoPublishTimeoutId !== null) {
     clearTimeout(autoPublishTimeoutId);
     autoPublishTimeoutId = null;
+  }
+}
+
+let isBackfilling = false;
+
+/**
+ * Automatically catches up missed posts generated while the user app/tab was closed.
+ * Ensures that if the app is opened after 10 mins, 1 hr, etc., missed posts
+ * are filled sequentially with realistic backdated timestamps!
+ */
+export async function checkAndBackfillOfflinePosts(existingPosts: SerialPost[]) {
+  if (isBackfilling || !existingPosts || existingPosts.length === 0) return;
+
+  // Find newest post timestamp
+  const newestPost = existingPosts.reduce((max, p) => (p.createdAt > max.createdAt ? p : max), existingPosts[0]);
+  const now = Date.now();
+  const gapMs = now - newestPost.createdAt;
+
+  // 2.5 minutes interval (150,000 ms)
+  const INTERVAL_MS = 150000;
+  if (gapMs < INTERVAL_MS) return;
+
+  isBackfilling = true;
+  try {
+    const history = getPublishedHistory();
+    // Cap at maximum 10 posts per backfill to prevent flash overloads
+    const missedCount = Math.min(10, Math.floor(gapMs / INTERVAL_MS));
+
+    for (let i = 1; i <= missedCount; i++) {
+      const backdatedTime = newestPost.createdAt + i * INTERVAL_MS;
+      if (backdatedTime >= now) break;
+
+      const unusedBankItems = HUMAN_USER_POSTS_BANK.filter((item) => !history.has(item.content));
+      let selectedItem: AutoPostItem;
+
+      if (unusedBankItems.length > 0) {
+        selectedItem = unusedBankItems[Math.floor(Math.random() * unusedBankItems.length)];
+      } else {
+        selectedItem = generateRealisticUserPost();
+      }
+
+      const cleanContent = removeEmojis(selectedItem.content);
+      history.add(cleanContent);
+      savePublishedHistory(history);
+
+      const botToken = `user-anon-${Math.floor(Math.random() * 9000 + 1000)}`;
+      await createSerialPost(cleanContent, botToken, selectedItem.tag, backdatedTime);
+    }
+  } catch (err) {
+    console.warn('Offline backfill notice:', err);
+  } finally {
+    isBackfilling = false;
   }
 }

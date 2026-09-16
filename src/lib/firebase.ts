@@ -129,7 +129,8 @@ export async function fetchPostBySerial(
 export async function createSerialPost(
   content: string,
   authorToken: string,
-  tag?: string
+  tag?: string,
+  overrideTimestamp?: number
 ): Promise<SerialPost> {
   const trimmed = content.trim();
   const counterRef = doc(db, 'meta', META_DOC_ID);
@@ -193,7 +194,7 @@ export async function createSerialPost(
   const newPostData = {
     serialNumber: nextSerial,
     content: trimmed,
-    createdAt: Date.now(),
+    createdAt: overrideTimestamp || Date.now(),
     authorToken,
     likesCount: 0,
     targetLikes,
