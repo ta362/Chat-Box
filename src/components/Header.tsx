@@ -1,5 +1,5 @@
 import React from 'react';
-import { Radio, Volume2, VolumeX, Search, Info, RefreshCw, Hash } from 'lucide-react';
+import { Radio, Volume2, VolumeX, Search, Info, RefreshCw, Hash, Download } from 'lucide-react';
 
 interface HeaderProps {
   onlineCount: number;
@@ -7,6 +7,7 @@ interface HeaderProps {
   soundEnabled: boolean;
   onToggleSound: () => void;
   onOpenInfo: () => void;
+  onOpenDownload: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   isSearchOpen: boolean;
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   soundEnabled,
   onToggleSound,
   onOpenInfo,
+  onOpenDownload,
   searchQuery,
   onSearchChange,
   isSearchOpen,
@@ -54,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1 sm:gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5">
           {/* Search Toggle */}
           <button
             id="btn-toggle-search"
@@ -66,6 +68,18 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Search messages"
           >
             <Search className="w-4 h-4" />
+          </button>
+
+          {/* Download & Export Button */}
+          <button
+            id="btn-open-download"
+            onClick={onOpenDownload}
+            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center gap-1 text-xs font-medium"
+            title="Download Chat History or Install App"
+            aria-label="Download options"
+          >
+            <Download className="w-4 h-4 text-zinc-700" />
+            <span className="hidden sm:inline font-semibold">Download</span>
           </button>
 
           {/* Sound Toggle */}
@@ -90,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
             id="btn-refresh"
             onClick={onRefresh}
             className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
-            title="Refresh stream"
+            title="Scroll to latest / Refresh stream"
             aria-label="Refresh"
           >
             <RefreshCw className="w-4 h-4" />

@@ -3,6 +3,7 @@ import { Header } from './components/Header';
 import { MessageItem } from './components/MessageItem';
 import { MessageInput } from './components/MessageInput';
 import { InfoModal } from './components/InfoModal';
+import { DownloadModal } from './components/DownloadModal';
 import { ChatMessage } from './types';
 import { soundPlayer } from './lib/audio';
 import {
@@ -17,7 +18,7 @@ import {
   fetchMessageBySerial,
   fetchOlderArchivedMessages,
 } from './lib/firebase';
-import { ArrowDown, MessageSquareOff, Archive, Loader2, Sparkles } from 'lucide-react';
+import { ArrowDown, MessageSquareOff, Archive, Loader2, Sparkles, Download } from 'lucide-react';
 
 const INITIAL_FALLBACK_MESSAGES: ChatMessage[] = [
   {
@@ -43,8 +44,6 @@ const INITIAL_FALLBACK_MESSAGES: ChatMessage[] = [
   },
 ];
 
-const COMPRESSION_LIMIT = 1000;
-
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
@@ -65,6 +64,7 @@ export default function App() {
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(getSoundPreference());
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
+  const [isDownloadOpen, setIsDownloadOpen] = useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isUserScrolledUp, setIsUserScrolledUp] = useState<boolean>(false);
@@ -247,7 +247,6 @@ export default function App() {
       setTimeout(() => scrollToBottom('smooth'), 50);
     } catch (err) {
       console.error('Failed to send message:', err);
-      // Fallback local update if offline
       const nextSerial =
         messages.length > 0
           ? Math.max(...messages.map((m) => m.serialNumber)) + 1
@@ -270,7 +269,6 @@ export default function App() {
 
   // Add reaction handler
   const handleReact = async (messageId: string, emoji: string) => {
-    // Optimistic local update
     setMessages((prev) =>
       prev.map((m) => {
         if (m.id !== messageId) return m;
@@ -285,7 +283,6 @@ export default function App() {
       })
     );
 
-    // Also update archived search result if reacted to
     if (archivedMessageResult && archivedMessageResult.id === messageId) {
       setArchivedMessageResult((prev) =>
         prev
@@ -321,7 +318,6 @@ export default function App() {
       return msg.text.toLowerCase().includes(query);
     });
 
-    // If archived query returned a result not in current active window, prepend it
     if (
       archivedMessageResult &&
       !matched.some((m) => m.id === archivedMessageResult.id)
@@ -343,6 +339,7 @@ export default function App() {
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
         onOpenInfo={() => setIsInfoOpen(true)}
+        onOpenDownload={() => setIsDownloadOpen(true)}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isSearchOpen={isSearchOpen}
@@ -368,12 +365,21 @@ export default function App() {
           <h2 className="text-sm font-medium text-zinc-700">
             Messages are preserved in sequential serial order for everyone.
           </h2>
-          <p className="text-xs text-zinc-500 mt-1">
-            Zero identity details • Automatic 1000+ archive compression • Search any serial # to recall
-          </p>
+          <div className="flex items-center justify-center gap-3 mt-1.5 flex-wrap">
+            <span className="text-xs text-zinc-500">
+              Zero identity details • Automatic 1000+ compression
+            </span>
+            <button
+              onClick={() => setIsDownloadOpen(true)}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-800 hover:text-black underline underline-offset-2"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download History / App
+            </button>
+          </div>
         </div>
 
-        {/* Compression / Older Archive Banner (if older messages exist before current view) */}
+        {/* Compression / Older Archive Banner */}
         {hasCompressedOlder && !searchQuery && (
           <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-600 mb-3 animate-fadeIn">
             <div className="flex items-center gap-2">
@@ -490,6 +496,14 @@ export default function App() {
         isOpen={isInfoOpen}
         onClose={() => setIsInfoOpen(false)}
         totalMessages={messages.length}
+      />
+
+      {/* Download & Export Modal */}
+      <DownloadModal
+        isOpen={isDownloadOpen}
+        onClose={() => setIsDownloadOpen(false)}
+        messages={messages}
+        totalCount={messages.length}
       />
     </div>
   );
