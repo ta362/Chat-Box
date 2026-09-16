@@ -185,8 +185,8 @@ export async function createSerialPost(
     }
   }
 
-  // Generate unique target max likes for the post (5k to 290k)
-  const targetLikes = Math.floor(Math.random() * 280000) + 5000;
+  // Generate unique target max likes for the post strictly under 60k (5k to 59k)
+  const targetLikes = Math.floor(Math.random() * 54000) + 5000;
   // Generate unique target max comments for the post (105 to 4000)
   const targetComments = Math.floor(Math.random() * 3800) + 105;
 
