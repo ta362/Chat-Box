@@ -41,14 +41,11 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-base font-semibold text-zinc-900 tracking-tight">
                 Anonymous Posts
               </h1>
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 border border-zinc-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {formatOnlineCount(onlineCount)} online
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 leading-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span>{formatOnlineCount(onlineCount)} online</span>
               </span>
             </div>
-            <p className="text-xs text-zinc-500 flex items-center gap-1.5 font-mono">
-              <span className="font-semibold text-zinc-700">#{totalPosts}</span> posts recorded in serial order
-            </p>
           </div>
         </div>
 

@@ -9,7 +9,7 @@ interface CreatePostCardProps {
   onOpenChange?: (open: boolean) => void;
 }
 
-const PRESET_TAGS = ['Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
+const PRESET_TAGS = ['Romantic', 'Feelings', 'Funny Joke', 'Shayari', 'Thoughts', 'Story'];
 
 export const CreatePostCard: React.FC<CreatePostCardProps> = ({
   onPublishPost,

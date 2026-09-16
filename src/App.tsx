@@ -9,6 +9,7 @@ import { SerialPost } from './types';
 import { soundPlayer } from './lib/audio';
 import { computeCurrentLikesForPost } from './lib/likesEngine';
 import { computeCurrentCommentsForPost } from './lib/commentsEngine';
+import { startAutoPublishEngine, stopAutoPublishEngine } from './lib/autoPublisher';
 import {
   getOrCreateAnonymousToken,
   getSoundPreference,
@@ -20,6 +21,8 @@ import {
   togglePostLike,
   addPostReaction,
   fetchPostBySerial,
+  deletePostsBySerials,
+  deleteBengaliPosts,
 } from './lib/firebase';
 import {
   Sparkles,
@@ -32,7 +35,7 @@ const INITIAL_FALLBACK_POSTS: SerialPost[] = [
   {
     id: 'post-init-1',
     serialNumber: 1,
-    content: 'Welcome to the Anonymous Serial Post Board! 🎉\nEvery post is assigned a permanent, strictly sequential serial number (#1, #2, #3...). You can like, comment, and react anonymously!',
+    content: 'Welcome to the Anonymous Serial Post Board!\nEvery post is assigned a permanent, strictly sequential serial number (#1, #2, #3...). You can like, comment, and react anonymously!',
     tag: 'Thoughts',
     authorToken: 'system',
     createdAt: Date.now() - 1000 * 60 * 60 * 8, // 8 hours ago (Stopped at target 50k!)
@@ -55,19 +58,6 @@ const INITIAL_FALLBACK_POSTS: SerialPost[] = [
     likedBy: [],
     reactions: { '💡': 930, '👏': 310 },
   },
-  {
-    id: 'post-init-3',
-    serialNumber: 3,
-    content: 'Building simple, fast tools without logins is one of the purest forms of web utility. Drop your thoughts below!',
-    tag: 'Tech',
-    authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 25, // 25 mins ago (Growing towards 5k target!)
-    likesCount: 380,
-    targetLikes: 5000,
-    commentsCount: 65,
-    likedBy: [],
-    reactions: { '🔥': 1100, '👏': 520 },
-  },
 ];
 
 const FILTER_TAGS = ['All', 'Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
@@ -87,7 +77,7 @@ export default function App() {
   });
 
   const [onlineCount, setOnlineCount] = useState<number>(
-    () => Math.floor(Math.random() * (480000 - 260000 + 1)) + 260000
+    () => Math.floor(Math.random() * (100000 - 50000 + 1)) + 50000
   );
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(getSoundPreference());
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
@@ -160,10 +150,10 @@ export default function App() {
 
     const timer = setInterval(() => {
       setOnlineCount((c) => {
-        const delta = (Math.random() > 0.48 ? 1 : -1) * Math.floor(Math.random() * 850 + 150);
+        const delta = (Math.random() > 0.48 ? 1 : -1) * Math.floor(Math.random() * 300 + 80);
         const next = c + delta;
-        if (next < 255000) return 255000 + Math.floor(Math.random() * 800);
-        if (next > 500000) return 500000 - Math.floor(Math.random() * 800);
+        if (next < 50000) return 50000 + Math.floor(Math.random() * 400);
+        if (next > 100000) return 100000 - Math.floor(Math.random() * 400);
         return next;
       });
     }, 3500);
@@ -186,6 +176,16 @@ export default function App() {
       clearInterval(progressionTimer);
     };
   }, [authorToken, soundEnabled]);
+
+  // Auto-publishing engine: Publishes new user posts every 2-3 mins
+  useEffect(() => {
+    deleteBengaliPosts();
+    deletePostsBySerials([3, 4, 5]);
+    startAutoPublishEngine();
+    return () => {
+      stopAutoPublishEngine();
+    };
+  }, []);
 
   // Serial search lookup
   useEffect(() => {

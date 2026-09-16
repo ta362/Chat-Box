@@ -275,6 +275,79 @@ export async function deleteSerialPost(
 }
 
 /**
+ * Utility to delete all posts containing Bengali characters (\u0980-\u09FF) and re-index remaining posts
+ */
+export async function deleteBengaliPosts() {
+  try {
+    const snap = await getDocs(collection(db, POSTS_COLLECTION));
+    if (!snap.empty) {
+      const bengaliRegex = /[\u0980-\u09FF]/;
+      const batch = writeBatch(db);
+      let deletedCount = 0;
+      snap.docs.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.content && bengaliRegex.test(data.content)) {
+          batch.delete(docSnap.ref);
+          deletedCount++;
+        }
+      });
+
+      if (deletedCount > 0) {
+        await batch.commit();
+
+        // Re-index remaining posts
+        const remainingSnap = await getDocs(
+          query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
+        );
+        const reindexBatch = writeBatch(db);
+        let count = 0;
+        remainingSnap.forEach((docSnap) => {
+          count++;
+          reindexBatch.update(docSnap.ref, { serialNumber: count });
+        });
+        await reindexBatch.commit();
+      }
+    }
+  } catch (err) {
+    console.warn('deleteBengaliPosts notice:', err);
+  }
+}
+
+/**
+ * Utility to delete posts by specific serial numbers and re-index remaining posts
+ */
+export async function deletePostsBySerials(serialNumbers: number[]) {
+  try {
+    const q = query(
+      collection(db, POSTS_COLLECTION),
+      where('serialNumber', 'in', serialNumbers)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const batch = writeBatch(db);
+      snap.docs.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+
+      // Re-index remaining posts
+      const remainingSnap = await getDocs(
+        query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
+      );
+      const reindexBatch = writeBatch(db);
+      let count = 0;
+      remainingSnap.forEach((docSnap) => {
+        count++;
+        reindexBatch.update(docSnap.ref, { serialNumber: count });
+      });
+      await reindexBatch.commit();
+    }
+  } catch (err) {
+    console.warn('deletePostsBySerials notice:', err);
+  }
+}
+
+/**
  * Toggle like for a post (atomic update with user token tracking)
  */
 export async function togglePostLike(

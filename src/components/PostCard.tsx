@@ -334,27 +334,6 @@ export const PostCard: React.FC<PostCardProps> = ({
               )}
             </button>
           </div>
-
-          {/* Share / Copy Serial */}
-          <button
-            type="button"
-            id={`btn-share-post-${post.serialNumber}`}
-            onClick={handleCopyLink}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors"
-            title="Copy post link and serial"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="text-emerald-600 font-medium">Copied</span>
-              </>
-            ) : (
-              <>
-                <Share2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Share</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 
