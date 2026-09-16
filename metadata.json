@@ -1,0 +1,6 @@
+{
+  "name": "Anonymous Live Chat",
+  "description": "An ultra-clean, minimal, and fully anonymous public serial chat room where anyone can read and post messages in real time without any accounts or personal details.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
