@@ -42,12 +42,8 @@ export const Header: React.FC<HeaderProps> = ({
                 Anonymous Chat
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 border border-zinc-200">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
-                  }`}
-                />
-                {isConnected ? `${onlineCount} online` : 'Connecting...'}
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                {onlineCount} online
               </span>
             </div>
             <p className="text-xs text-zinc-500 flex items-center gap-1 font-mono">
