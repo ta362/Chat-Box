@@ -1,0 +1,14 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /messages/{messageId} {
+      allow read: if true;
+      allow create: if request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;
+      allow update: if true;
+      allow delete: if false;
+    }
+    match /meta/{metaId} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "entities": {
+    "messages": {
+      "title": "Messages",
+      "description": "Anonymous public serial chat messages stream",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "serialNumber": { "type": "number" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "authorToken": { "type": "string" },
+        "reactions": { "type": "object" },
+        "replyTo": { "type": "object" }
+      },
+      "required": ["serialNumber", "text", "createdAt"]
+    }
+  },
+  "firestoreRules": {
+    "version": "2",
+    "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /messages/{messageId} {\n      allow read: if true;\n      allow create: if request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;\n      allow update: if true;\n      allow delete: if false;\n    }\n    match /meta/{metaId} {\n      allow read, write: if true;\n    }\n  }\n}"
+  }
+}
