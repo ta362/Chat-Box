@@ -16,6 +16,8 @@ import {
   limitToLast,
   getDocs,
   runTransaction,
+  deleteDoc,
+  writeBatch,
   Timestamp,
 } from 'firebase/firestore';
 import { SerialPost, PostComment } from '../types';
@@ -58,14 +60,19 @@ export function subscribeToPosts(
               : Date.now(),
           authorToken: data.authorToken || 'anon',
           likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
+          targetLikes: typeof data.targetLikes === 'number' ? data.targetLikes : undefined,
           commentsCount: typeof data.commentsCount === 'number' ? data.commentsCount : 0,
+          targetComments: typeof data.targetComments === 'number' ? data.targetComments : undefined,
           likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
           reactions: data.reactions || {},
           tag: data.tag || undefined,
         });
       });
-      // Sort strictly by continuous serialNumber ascending
-      posts.sort((a, b) => a.serialNumber - b.serialNumber);
+      // Sort strictly chronologically by creation time and re-assign continuous serial numbers (#1, #2, #3...)
+      posts.sort((a, b) => a.createdAt - b.createdAt);
+      posts.forEach((p, index) => {
+        p.serialNumber = index + 1;
+      });
       onUpdate(posts);
     },
     (err) => {
@@ -178,13 +185,20 @@ export async function createSerialPost(
     }
   }
 
+  // Generate unique target max likes for the post (5k to 290k)
+  const targetLikes = Math.floor(Math.random() * 280000) + 5000;
+  // Generate unique target max comments for the post (105 to 4000)
+  const targetComments = Math.floor(Math.random() * 3800) + 105;
+
   const newPostData = {
     serialNumber: nextSerial,
     content: trimmed,
     createdAt: Date.now(),
     authorToken,
     likesCount: 0,
+    targetLikes,
     commentsCount: 0,
+    targetComments,
     likedBy: [],
     reactions: {},
     tag: tag || null,
@@ -197,6 +211,67 @@ export async function createSerialPost(
     ...newPostData,
     tag: tag || undefined,
   };
+}
+
+/**
+ * Delete a post if author matches and created within 30 minutes window
+ */
+export async function deleteSerialPost(
+  postId: string,
+  authorToken: string,
+  postAuthorToken: string,
+  createdAt: number
+): Promise<{ success: boolean; message?: string }> {
+  // Check author token match
+  if (authorToken !== postAuthorToken) {
+    return {
+      success: false,
+      message: 'You can only delete your own posts.',
+    };
+  }
+
+  // Check 30 minute time limit (30 * 60 * 1000 = 1,800,000 ms)
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const elapsed = Date.now() - createdAt;
+
+  if (elapsed > THIRTY_MINUTES_MS) {
+    return {
+      success: false,
+      message: '30 minutes have passed! This post can no longer be deleted.',
+    };
+  }
+
+  try {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    await deleteDoc(postRef);
+
+    // Re-index all remaining posts in Firestore so serial numbers stay strictly continuous (#1, #2, #3...)
+    try {
+      const remainingSnap = await getDocs(
+        query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
+      );
+      const batch = writeBatch(db);
+      let count = 0;
+      remainingSnap.forEach((docSnap) => {
+        count++;
+        batch.update(docSnap.ref, { serialNumber: count });
+      });
+      // Update meta document with updated lastSerialNumber
+      const metaRef = doc(db, 'meta', META_DOC_ID);
+      batch.set(metaRef, { lastSerialNumber: count, updatedAt: Date.now() }, { merge: true });
+      await batch.commit();
+    } catch (reindexErr) {
+      console.warn('Re-indexing notice after post deletion:', reindexErr);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to delete post:', err);
+    return {
+      success: false,
+      message: err?.message || 'Failed to delete post.',
+    };
+  }
 }
 
 /**

@@ -12,6 +12,13 @@ interface HeaderProps {
   onToggleSearch: () => void;
 }
 
+const formatOnlineCount = (count: number) => {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1)}k`;
+  }
+  return count.toString();
+};
+
 export const Header: React.FC<HeaderProps> = ({
   onlineCount,
   totalPosts,
@@ -36,7 +43,7 @@ export const Header: React.FC<HeaderProps> = ({
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 border border-zinc-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {onlineCount} online
+                {formatOnlineCount(onlineCount)} online
               </span>
             </div>
             <p className="text-xs text-zinc-500 flex items-center gap-1.5 font-mono">

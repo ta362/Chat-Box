@@ -5,7 +5,7 @@ service cloud.firestore {
       allow read: if true;
       allow create: if request.resource.data.content is string && request.resource.data.content.size() > 0 && request.resource.data.content.size() <= 5000;
       allow update: if true;
-      allow delete: if false;
+      allow delete: if true;
 
       match /comments/{commentId} {
         allow read: if true;

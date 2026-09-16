@@ -7,9 +7,11 @@ import {
   Send,
   Clock,
   Tag as TagIcon,
-  Smile,
   ChevronDown,
   ChevronUp,
+  Trash2,
+  AlertCircle,
+  Timer,
 } from 'lucide-react';
 import { SerialPost, PostComment } from '../types';
 import { CommentItem } from './CommentItem';
@@ -17,7 +19,9 @@ import {
   subscribeToPostComments,
   addPostComment,
   toggleCommentLike,
+  deleteSerialPost,
 } from '../lib/firebase';
+import { generateRealisticCommentsForPost } from '../lib/commentsEngine';
 import { soundPlayer } from '../lib/audio';
 
 interface PostCardProps {
@@ -29,6 +33,16 @@ interface PostCardProps {
 }
 
 const COMMON_EMOJIS = ['🔥', '❤️', '💡', '👏', '😂'];
+
+const formatCompactNumber = (count: number) => {
+  if (count >= 1000000) {
+    return `${(count / 1000000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  }
+  return count.toLocaleString();
+};
 
 export const PostCard: React.FC<PostCardProps> = ({
   post,
@@ -42,25 +56,68 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [newCommentText, setNewCommentText] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const isAuthor = post.authorToken === currentUserToken;
   const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(currentUserToken);
   const likesCount = typeof post.likesCount === 'number' ? post.likesCount : (post.likedBy?.length || 0);
   const commentsCount = Math.max(post.commentsCount || 0, comments.length);
 
+  // 30 minute deletion window (30 * 60 * 1000 ms = 1,800,000 ms)
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const [now, setNow] = useState(Date.now());
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isAuthor) return;
+    const elapsed = now - post.createdAt;
+    if (elapsed >= THIRTY_MINUTES_MS) return;
+
+    const interval = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isAuthor, post.createdAt, THIRTY_MINUTES_MS, now]);
+
+  const timeElapsedMs = now - post.createdAt;
+  const timeRemainingMs = Math.max(0, THIRTY_MINUTES_MS - timeElapsedMs);
+  const canDelete = isAuthor && timeRemainingMs > 0;
+
+  const formatRemainingTimer = (ms: number) => {
+    const totalSec = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSec / 60);
+    const secs = totalSec % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  const handleDeleteClick = async () => {
+    if (!canDelete || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    const res = await deleteSerialPost(post.id, currentUserToken, post.authorToken, post.createdAt);
+    if (!res.success) {
+      setDeleteError(res.message || 'Could not delete post.');
+      setIsDeleting(false);
+      setShowConfirmDelete(false);
+    }
+  };
+
   // Subscribe to comments when comment section is opened
   useEffect(() => {
     if (!isCommentsOpen) return;
 
     const unsubscribe = subscribeToPostComments(post.id, (loadedComments) => {
-      setComments(loadedComments);
+      const fullComments = generateRealisticCommentsForPost(post, post.commentsCount, loadedComments);
+      setComments(fullComments);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [isCommentsOpen, post.id]);
+  }, [isCommentsOpen, post.id, post.commentsCount]);
 
   const handleToggleComments = () => {
     setIsCommentsOpen((prev) => !prev);
@@ -78,7 +135,6 @@ export const PostCard: React.FC<PostCardProps> = ({
       soundPlayer.playPop();
     }
     onAddReaction(post.id, emoji);
-    setShowEmojiPicker(false);
   };
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
@@ -127,10 +183,6 @@ export const PostCard: React.FC<PostCardProps> = ({
     });
   };
 
-  const reactionsList = Object.entries(post.reactions || {}).filter(
-    (entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] > 0
-  );
-
   return (
     <article
       id={`post-card-${post.serialNumber}`}
@@ -160,34 +212,86 @@ export const PostCard: React.FC<PostCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono" title={formatExactDate(post.createdAt)}>
-            <Clock className="w-3 h-3" />
+            {/* Delete button for author within 30 minutes */}
+            {isAuthor && (
+              canDelete ? (
+                <button
+                  type="button"
+                  id={`btn-delete-post-${post.id}`}
+                  onClick={() => setShowConfirmDelete(!showConfirmDelete)}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
+                  title="Delete post (Allowed within 30 minutes of posting)"
+                >
+                  <Trash2 className="w-3 h-3 text-rose-600" />
+                  <span>Delete</span>
+                  <span className="font-mono text-[10px] bg-rose-200/60 text-rose-800 px-1 rounded">
+                    {formatRemainingTimer(timeRemainingMs)}
+                  </span>
+                </button>
+              ) : (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-mono px-2 py-0.5 rounded-md bg-zinc-50 border border-zinc-200/60"
+                  title="Posts can only be deleted within 30 minutes of creation"
+                >
+                  <Timer className="w-3 h-3 text-zinc-400" />
+                  <span>30m expired</span>
+                </span>
+              )
+            )}
+
+            <Clock className="w-3 h-3 ml-1" />
             <span>{formatTimeAgo(post.createdAt)}</span>
           </div>
         </div>
+
+        {/* Delete Confirmation Drawer */}
+        {showConfirmDelete && (
+          <div className="mb-3 p-3 rounded-xl bg-rose-50/90 border border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                Delete this post? You have <strong>{formatRemainingTimer(timeRemainingMs)}</strong> remaining.
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDelete(false)}
+                className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-zinc-700 hover:bg-zinc-50 font-medium text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id={`btn-confirm-delete-${post.id}`}
+                disabled={isDeleting}
+                onClick={handleDeleteClick}
+                className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs transition-colors flex items-center gap-1"
+              >
+                {isDeleting ? (
+                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3" />
+                )}
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {deleteError && (
+          <div className="mb-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>{deleteError}</span>
+          </div>
+        )}
 
         {/* Post Main Content */}
         <div className="text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal my-3">
           {post.content}
         </div>
 
-        {/* Reactions Chips Bar */}
-        {reactionsList.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap my-3 pt-1">
-            {reactionsList.map(([emoji, count]) => (
-              <button
-                key={emoji}
-                type="button"
-                onClick={() => handleReactionClick(emoji)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100/80 hover:bg-zinc-200 text-xs font-medium border border-zinc-200/60 transition-transform active:scale-95"
-              >
-                <span>{emoji}</span>
-                <span className="text-zinc-700 font-semibold">{count}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Post Actions Bar: Like, Comments Toggle, Quick Emoji, Share */}
+        {/* Post Actions Bar: Like, Comments Toggle, Share */}
         <div className="flex items-center justify-between pt-3 mt-2 border-t border-zinc-100 text-xs text-zinc-600 gap-1">
           <div className="flex items-center gap-1 sm:gap-2">
             {/* Like Button */}
@@ -207,7 +311,7 @@ export const PostCard: React.FC<PostCardProps> = ({
                   isLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'group-hover:scale-110'
                 }`}
               />
-              <span>{likesCount > 0 ? `${likesCount} Likes` : 'Like'}</span>
+              <span>{likesCount > 0 ? `${formatCompactNumber(likesCount)} Likes` : 'Like'}</span>
             </button>
 
             {/* Comments Toggle Button */}
@@ -229,33 +333,6 @@ export const PostCard: React.FC<PostCardProps> = ({
                 <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
               )}
             </button>
-
-            {/* Quick Emoji Reaction Trigger */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-800 hover:bg-zinc-100 transition-colors"
-                title="Add emoji reaction"
-              >
-                <Smile className="w-4 h-4" />
-              </button>
-
-              {showEmojiPicker && (
-                <div className="absolute left-0 bottom-full mb-2 z-20 flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1.5 shadow-lg animate-in fade-in zoom-in-95">
-                  {COMMON_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => handleReactionClick(emoji)}
-                      className="p-1.5 hover:bg-zinc-100 rounded-lg text-base transition-transform hover:scale-125 active:scale-95"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Share / Copy Serial */}

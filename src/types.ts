@@ -20,7 +20,9 @@ export interface SerialPost {
   createdAt: number;
   authorToken: string;
   likesCount: number;
+  targetLikes?: number;
   commentsCount: number;
+  targetComments?: number;
   likedBy?: string[];
   reactions?: Record<string, number>;
   tag?: string;

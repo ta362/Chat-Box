@@ -7,6 +7,8 @@ import { InfoModal } from './components/InfoModal';
 import { DownloadModal } from './components/DownloadModal';
 import { SerialPost } from './types';
 import { soundPlayer } from './lib/audio';
+import { computeCurrentLikesForPost } from './lib/likesEngine';
+import { computeCurrentCommentsForPost } from './lib/commentsEngine';
 import {
   getOrCreateAnonymousToken,
   getSoundPreference,
@@ -33,11 +35,12 @@ const INITIAL_FALLBACK_POSTS: SerialPost[] = [
     content: 'Welcome to the Anonymous Serial Post Board! 🎉\nEvery post is assigned a permanent, strictly sequential serial number (#1, #2, #3...). You can like, comment, and react anonymously!',
     tag: 'Thoughts',
     authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 30,
-    likesCount: 12,
-    commentsCount: 3,
+    createdAt: Date.now() - 1000 * 60 * 60 * 8, // 8 hours ago (Stopped at target 50k!)
+    likesCount: 50000,
+    targetLikes: 50000,
+    commentsCount: 142,
     likedBy: [],
-    reactions: { '🔥': 8, '❤️': 6, '💡': 4 },
+    reactions: { '🔥': 820, '❤️': 640, '💡': 410 },
   },
   {
     id: 'post-init-2',
@@ -45,11 +48,12 @@ const INITIAL_FALLBACK_POSTS: SerialPost[] = [
     content: 'What is a book, article, or idea that completely changed the way you think about life or work?',
     tag: 'Question',
     authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 20,
-    likesCount: 7,
-    commentsCount: 5,
+    createdAt: Date.now() - 1000 * 60 * 60 * 2, // 2 hours ago (Growing towards 20k target!)
+    likesCount: 5200,
+    targetLikes: 20000,
+    commentsCount: 98,
     likedBy: [],
-    reactions: { '💡': 9, '👏': 3 },
+    reactions: { '💡': 930, '👏': 310 },
   },
   {
     id: 'post-init-3',
@@ -57,11 +61,12 @@ const INITIAL_FALLBACK_POSTS: SerialPost[] = [
     content: 'Building simple, fast tools without logins is one of the purest forms of web utility. Drop your thoughts below!',
     tag: 'Tech',
     authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 10,
-    likesCount: 15,
-    commentsCount: 2,
+    createdAt: Date.now() - 1000 * 60 * 25, // 25 mins ago (Growing towards 5k target!)
+    likesCount: 380,
+    targetLikes: 5000,
+    commentsCount: 65,
     likedBy: [],
-    reactions: { '🔥': 11, '👏': 5 },
+    reactions: { '🔥': 1100, '👏': 520 },
   },
 ];
 
@@ -81,7 +86,9 @@ export default function App() {
     return INITIAL_FALLBACK_POSTS;
   });
 
-  const [onlineCount, setOnlineCount] = useState<number>(() => Math.floor(Math.random() * 5) + 3);
+  const [onlineCount, setOnlineCount] = useState<number>(
+    () => Math.floor(Math.random() * (480000 - 260000 + 1)) + 260000
+  );
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(getSoundPreference());
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string>('All');
@@ -122,7 +129,7 @@ export default function App() {
     setSoundPreference(next);
   };
 
-  // Real-time Firestore Posts Subscription
+  // Real-time Firestore Posts Subscription & Likes Engine
   useEffect(() => {
     const unsubscribe = subscribeToPosts(
       (realtimePosts) => {
@@ -137,7 +144,13 @@ export default function App() {
             }
           }
           previousPostsCountRef.current = realtimePosts.length;
-          setPosts(realtimePosts);
+          // Compute age-based dynamic likes & comments for each post
+          const processed = realtimePosts.map((p) => ({
+            ...p,
+            likesCount: computeCurrentLikesForPost(p, authorToken),
+            commentsCount: computeCurrentCommentsForPost(p),
+          }));
+          setPosts(processed);
         }
       },
       (err) => {
@@ -146,12 +159,31 @@ export default function App() {
     );
 
     const timer = setInterval(() => {
-      setOnlineCount((c) => Math.max(2, c + (Math.random() > 0.5 ? 1 : -1)));
-    }, 18000);
+      setOnlineCount((c) => {
+        const delta = (Math.random() > 0.48 ? 1 : -1) * Math.floor(Math.random() * 850 + 150);
+        const next = c + delta;
+        if (next < 255000) return 255000 + Math.floor(Math.random() * 800);
+        if (next > 500000) return 500000 - Math.floor(Math.random() * 800);
+        return next;
+      });
+    }, 3500);
+
+    // Live likes & comments progression timer (recalculates based on age, stopping after target duration)
+    const progressionTimer = setInterval(() => {
+      setPosts((prevPosts) => {
+        if (prevPosts.length === 0) return prevPosts;
+        return prevPosts.map((p) => ({
+          ...p,
+          likesCount: computeCurrentLikesForPost(p, authorToken),
+          commentsCount: computeCurrentCommentsForPost(p),
+        }));
+      });
+    }, 3000);
 
     return () => {
       unsubscribe();
       clearInterval(timer);
+      clearInterval(progressionTimer);
     };
   }, [authorToken, soundEnabled]);
 
