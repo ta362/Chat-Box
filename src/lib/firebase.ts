@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   query,
+  where,
   orderBy,
   onSnapshot,
   addDoc,
@@ -22,7 +23,7 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefi
 const MESSAGES_COLLECTION = 'messages';
 
 /**
- * Subscribe to real-time chat messages from Firestore
+ * Subscribe to real-time chat messages from Firestore (active stream of latest 1000 messages)
  */
 export function subscribeToMessages(
   onUpdate: (messages: ChatMessage[]) => void,
@@ -31,7 +32,7 @@ export function subscribeToMessages(
   const q = query(
     collection(db, MESSAGES_COLLECTION),
     orderBy('createdAt', 'asc'),
-    limitToLast(500)
+    limitToLast(1000)
   );
 
   return onSnapshot(
@@ -67,6 +68,83 @@ export function subscribeToMessages(
 }
 
 /**
+ * Fetch a specific chat message by its serial number (even if compressed/archived)
+ */
+export async function fetchMessageBySerial(
+  serialNumber: number
+): Promise<ChatMessage | null> {
+  try {
+    const q = query(
+      collection(db, MESSAGES_COLLECTION),
+      where('serialNumber', '==', serialNumber)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      const docSnap = snap.docs[0];
+      const data = docSnap.data();
+      return {
+        id: docSnap.id,
+        serialNumber: data.serialNumber || serialNumber,
+        text: data.text || '',
+        createdAt:
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toMillis()
+            : typeof data.createdAt === 'number'
+            ? data.createdAt
+            : Date.now(),
+        authorToken: data.authorToken,
+        reactions: data.reactions || {},
+        replyTo: data.replyTo || null,
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error(`Error querying serial message #${serialNumber}:`, err);
+    return null;
+  }
+}
+
+/**
+ * Fetch older compressed messages before a specific serial number
+ */
+export async function fetchOlderArchivedMessages(
+  beforeSerial: number,
+  count: number = 50
+): Promise<ChatMessage[]> {
+  try {
+    const q = query(
+      collection(db, MESSAGES_COLLECTION),
+      where('serialNumber', '<', beforeSerial),
+      orderBy('serialNumber', 'desc'),
+      limitToLast(count)
+    );
+    const snap = await getDocs(q);
+    const msgs: ChatMessage[] = [];
+    snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      msgs.push({
+        id: docSnap.id,
+        serialNumber: data.serialNumber || 1,
+        text: data.text || '',
+        createdAt:
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toMillis()
+            : typeof data.createdAt === 'number'
+            ? data.createdAt
+            : Date.now(),
+        authorToken: data.authorToken,
+        reactions: data.reactions || {},
+        replyTo: data.replyTo || null,
+      });
+    });
+    return msgs.sort((a, b) => a.serialNumber - b.serialNumber);
+  } catch (err) {
+    console.error('Error fetching older archived messages:', err);
+    return [];
+  }
+}
+
+/**
  * Send an anonymous message to Firestore
  */
 export async function sendChatMessage(
@@ -89,7 +167,7 @@ export async function sendChatMessage(
       nextSerial = (topDoc.serialNumber || 0) + 1;
     }
   } catch (err) {
-    console.warn('Could not query last serial, fallback to timestamp calculation:', err);
+    console.warn('Could not query last serial, fallback to calculation:', err);
   }
 
   const newMsgData = {

@@ -14,8 +14,10 @@ import {
   subscribeToMessages,
   sendChatMessage,
   addMessageReaction,
+  fetchMessageBySerial,
+  fetchOlderArchivedMessages,
 } from './lib/firebase';
-import { ArrowDown, MessageSquareOff } from 'lucide-react';
+import { ArrowDown, MessageSquareOff, Archive, Loader2, Sparkles } from 'lucide-react';
 
 const INITIAL_FALLBACK_MESSAGES: ChatMessage[] = [
   {
@@ -40,6 +42,8 @@ const INITIAL_FALLBACK_MESSAGES: ChatMessage[] = [
     reactions: { "💡": 3 },
   },
 ];
+
+const COMPRESSION_LIMIT = 1000;
 
 export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
@@ -66,6 +70,11 @@ export default function App() {
   const [isUserScrolledUp, setIsUserScrolledUp] = useState<boolean>(false);
   const [newMessagesWhileScrolled, setNewMessagesWhileScrolled] = useState<number>(0);
 
+  // Archive & Serial Search States
+  const [archivedMessageResult, setArchivedMessageResult] = useState<ChatMessage | null>(null);
+  const [isSearchingArchive, setIsSearchingArchive] = useState<boolean>(false);
+  const [isLoadingMoreArchive, setIsLoadingMoreArchive] = useState<boolean>(false);
+
   const authorToken = useMemo(() => getOrCreateAnonymousToken(), []);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -75,7 +84,7 @@ export default function App() {
   useEffect(() => {
     try {
       if (messages.length > 0) {
-        localStorage.setItem('anon_local_messages_cache', JSON.stringify(messages));
+        localStorage.setItem('anon_local_messages_cache', JSON.stringify(messages.slice(-500)));
       }
     } catch {
       // ignore
@@ -143,11 +152,10 @@ export default function App() {
         }
       },
       (err) => {
-        console.warn('Firestore subscription fallback:', err);
+        console.warn('Firestore subscription status:', err);
       }
     );
 
-    // Initial random dynamic active count fluctuation for realism
     const interval = setInterval(() => {
       setOnlineCount((prev) => Math.max(1, prev + (Math.random() > 0.5 ? 1 : -1)));
     }, 15000);
@@ -164,6 +172,65 @@ export default function App() {
       scrollToBottom('auto');
     }
   }, []);
+
+  // Check and query archive if search query looks like a serial number
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setArchivedMessageResult(null);
+      setIsSearchingArchive(false);
+      return;
+    }
+
+    const serialNum = trimmed.startsWith('#')
+      ? parseInt(trimmed.slice(1), 10)
+      : /^\d+$/.test(trimmed)
+      ? parseInt(trimmed, 10)
+      : null;
+
+    if (serialNum !== null && !isNaN(serialNum)) {
+      // Check if already in active rendered messages
+      const foundLocally = messages.some((m) => m.serialNumber === serialNum);
+      if (!foundLocally) {
+        setIsSearchingArchive(true);
+        fetchMessageBySerial(serialNum)
+          .then((result) => {
+            setArchivedMessageResult(result);
+          })
+          .finally(() => {
+            setIsSearchingArchive(false);
+          });
+      } else {
+        setArchivedMessageResult(null);
+      }
+    } else {
+      setArchivedMessageResult(null);
+    }
+  }, [searchQuery, messages]);
+
+  // Load older compressed messages from archive
+  const handleLoadOlderCompressed = async () => {
+    if (messages.length === 0 || isLoadingMoreArchive) return;
+    const earliestSerial = messages[0].serialNumber;
+    if (earliestSerial <= 1) return;
+
+    setIsLoadingMoreArchive(true);
+    try {
+      const olderMsgs = await fetchOlderArchivedMessages(earliestSerial, 50);
+      if (olderMsgs.length > 0) {
+        setMessages((prev) => {
+          const map = new Map<string, ChatMessage>();
+          olderMsgs.forEach((m) => map.set(m.id, m));
+          prev.forEach((m) => map.set(m.id, m));
+          return Array.from(map.values()).sort((a, b) => a.serialNumber - b.serialNumber);
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load older archive:', err);
+    } finally {
+      setIsLoadingMoreArchive(false);
+    }
+  };
 
   // Send message handler to Firestore
   const handleSendMessage = async (
@@ -218,7 +285,21 @@ export default function App() {
       })
     );
 
-    // Sync to Firestore
+    // Also update archived search result if reacted to
+    if (archivedMessageResult && archivedMessageResult.id === messageId) {
+      setArchivedMessageResult((prev) =>
+        prev
+          ? {
+              ...prev,
+              reactions: {
+                ...(prev.reactions || {}),
+                [emoji]: ((prev.reactions || {})[emoji] || 0) + 1,
+              },
+            }
+          : null
+      );
+    }
+
     await addMessageReaction(messageId, emoji);
   };
 
@@ -233,20 +314,32 @@ export default function App() {
       ? parseInt(query, 10)
       : null;
 
-    return messages.filter((msg) => {
+    const matched = messages.filter((msg) => {
       if (isSerialSearch !== null && !isNaN(isSerialSearch)) {
         if (msg.serialNumber === isSerialSearch) return true;
       }
       return msg.text.toLowerCase().includes(query);
     });
-  }, [messages, searchQuery]);
+
+    // If archived query returned a result not in current active window, prepend it
+    if (
+      archivedMessageResult &&
+      !matched.some((m) => m.id === archivedMessageResult.id)
+    ) {
+      return [archivedMessageResult, ...matched];
+    }
+
+    return matched;
+  }, [messages, searchQuery, archivedMessageResult]);
+
+  const hasCompressedOlder = messages.length > 0 && messages[0].serialNumber > 1;
 
   return (
     <div className="min-h-screen bg-white text-zinc-900 flex flex-col justify-between selection:bg-zinc-200">
       {/* Top Header */}
       <Header
         onlineCount={onlineCount}
-        totalMessages={messages.length}
+        totalMessages={messages.length > 0 ? Math.max(...messages.map((m) => m.serialNumber)) : 0}
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
         onOpenInfo={() => setIsInfoOpen(true)}
@@ -276,16 +369,72 @@ export default function App() {
             Messages are preserved in sequential serial order for everyone.
           </h2>
           <p className="text-xs text-zinc-500 mt-1">
-            Zero identity details • Complete freedom • Real-time global broadcast
+            Zero identity details • Automatic 1000+ archive compression • Search any serial # to recall
           </p>
         </div>
 
+        {/* Compression / Older Archive Banner (if older messages exist before current view) */}
+        {hasCompressedOlder && !searchQuery && (
+          <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-600 mb-3 animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <Archive className="w-4 h-4 text-zinc-500 shrink-0" />
+              <span>
+                Messages <strong className="font-mono text-zinc-800">#001</strong> to{' '}
+                <strong className="font-mono text-zinc-800">
+                  #{String(messages[0].serialNumber - 1).padStart(3, '0')}
+                </strong>{' '}
+                are archived.
+              </span>
+            </div>
+            <button
+              onClick={handleLoadOlderCompressed}
+              disabled={isLoadingMoreArchive}
+              className="px-2.5 py-1 bg-white hover:bg-zinc-100 border border-zinc-200 rounded-lg font-medium text-zinc-800 flex items-center gap-1 transition-all shadow-2xs text-[11px]"
+            >
+              {isLoadingMoreArchive ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Loading...</span>
+                </>
+              ) : (
+                <span>Load Older</span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Searching Archive indicator */}
+        {isSearchingArchive && (
+          <div className="p-3 bg-zinc-100 rounded-xl flex items-center justify-center gap-2 text-xs text-zinc-600">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>Searching compressed archive for serial #{searchQuery}...</span>
+          </div>
+        )}
+
+        {/* Found in Archive Callout */}
+        {archivedMessageResult && (
+          <div className="p-2.5 bg-zinc-900 text-white rounded-xl flex items-center justify-between text-xs animate-fadeIn shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>
+                Retrieved archived message{' '}
+                <strong className="font-mono">
+                  #{String(archivedMessageResult.serialNumber).padStart(3, '0')}
+                </strong>{' '}
+                from database:
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Message Items List */}
-        {filteredMessages.length === 0 ? (
+        {filteredMessages.length === 0 && !isSearchingArchive ? (
           <div className="py-16 text-center text-zinc-400">
             <MessageSquareOff className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p className="text-sm font-medium">
-              {searchQuery ? 'No messages match your search.' : 'No messages yet.'}
+              {searchQuery
+                ? `No message found matching "${searchQuery}".`
+                : 'No messages yet.'}
             </p>
             {searchQuery && (
               <button
