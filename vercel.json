@@ -1,20 +1,5 @@
 {
-  "framework": "vite",
-  "buildCommand": "vite build",
-  "outputDirectory": "dist",
   "rewrites": [
-    {
-      "source": "/api/messages/:id/react",
-      "destination": "/api/react"
-    },
-    {
-      "source": "/api/messages",
-      "destination": "/api/messages"
-    },
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
