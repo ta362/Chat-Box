@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Plus, X, Tag, Sparkles, PenLine } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Send, Plus, X, Tag, Sparkles, PenLine, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { SerialPost } from '../types';
+import { checkIsSimilarPost } from '../lib/similarity';
 
 interface CreatePostCardProps {
   onPublishPost: (content: string, tag?: string) => Promise<boolean>;
@@ -7,6 +9,7 @@ interface CreatePostCardProps {
   isPublishing: boolean;
   isOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  existingPosts?: SerialPost[];
 }
 
 const PRESET_TAGS = ['Romantic', 'Feelings', 'Funny Joke', 'Shayari', 'Thoughts', 'Story'];
@@ -17,6 +20,7 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
   isPublishing,
   isOpen: controlledIsOpen,
   onOpenChange,
+  existingPosts = [],
 }) => {
   const [internalIsOpen, setInternalIsOpen] = useState(false);
   const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen;
@@ -32,6 +36,11 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
 
   const maxLength = 2000;
   const remainingChars = maxLength - content.length;
+
+  // Real-time similarity / copyright duplicate check
+  const similarityCheck = useMemo(() => {
+    return checkIsSimilarPost(content, existingPosts, 0.70);
+  }, [content, existingPosts]);
 
   useEffect(() => {
     if (isOpen) {
@@ -55,7 +64,7 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!content.trim() || isPublishing) return;
+    if (!content.trim() || isPublishing || similarityCheck.isDuplicate) return;
 
     const success = await onPublishPost(content.trim(), selectedTag || undefined);
     if (success) {
@@ -139,9 +148,32 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
               placeholder="What's on your mind? Share an idea, question, or story anonymously..."
               maxLength={maxLength}
               rows={4}
-              className="w-full bg-zinc-50/50 hover:bg-zinc-50 focus:bg-white border border-zinc-200 focus:border-zinc-400 rounded-xl p-3.5 text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400 resize-none focus:outline-none leading-relaxed transition-colors"
+              className={`w-full bg-zinc-50/50 hover:bg-zinc-50 focus:bg-white border rounded-xl p-3.5 text-sm sm:text-base text-zinc-900 placeholder:text-zinc-400 resize-none focus:outline-none leading-relaxed transition-colors ${
+                similarityCheck.isDuplicate
+                  ? 'border-rose-300 focus:border-rose-500 bg-rose-50/20'
+                  : 'border-zinc-200 focus:border-zinc-400'
+              }`}
             />
           </div>
+
+          {/* Copyright / Duplicate Warning Banner */}
+          {similarityCheck.isDuplicate && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1">
+              <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold text-rose-950">
+                  Copyright & Duplicate Content Protection
+                </p>
+                <p className="mt-0.5 text-rose-800 leading-normal">
+                  This text is <strong>{similarityCheck.similarityPercentage}% similar</strong> to existing{' '}
+                  <span className="font-mono font-bold bg-rose-100 px-1 py-0.5 rounded text-rose-950">
+                    Post #{similarityCheck.matchedPost?.serialNumber}
+                  </span>
+                  . Duplicate posts are blocked to protect originality.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Tags Selection */}
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -191,9 +223,9 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
               <button
                 id="btn-publish-post"
                 type="submit"
-                disabled={!content.trim() || isPublishing}
+                disabled={!content.trim() || isPublishing || similarityCheck.isDuplicate}
                 className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-all shadow-xs ${
-                  content.trim() && !isPublishing
+                  content.trim() && !isPublishing && !similarityCheck.isDuplicate
                     ? 'bg-zinc-900 text-white hover:bg-black active:scale-98'
                     : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
                 }`}

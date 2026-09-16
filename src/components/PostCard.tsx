@@ -9,9 +9,6 @@ import {
   Tag as TagIcon,
   ChevronDown,
   ChevronUp,
-  Trash2,
-  AlertCircle,
-  Timer,
 } from 'lucide-react';
 import { SerialPost, PostComment } from '../types';
 import { CommentItem } from './CommentItem';
@@ -19,7 +16,6 @@ import {
   subscribeToPostComments,
   addPostComment,
   toggleCommentLike,
-  deleteSerialPost,
 } from '../lib/firebase';
 import { generateRealisticCommentsForPost } from '../lib/commentsEngine';
 import { soundPlayer } from '../lib/audio';
@@ -61,49 +57,6 @@ export const PostCard: React.FC<PostCardProps> = ({
   const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(currentUserToken);
   const likesCount = typeof post.likesCount === 'number' ? post.likesCount : (post.likedBy?.length || 0);
   const commentsCount = Math.max(post.commentsCount || 0, comments.length);
-
-  // 30 minute deletion window (30 * 60 * 1000 ms = 1,800,000 ms)
-  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-  const [now, setNow] = useState(Date.now());
-  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isAuthor) return;
-    const elapsed = now - post.createdAt;
-    if (elapsed >= THIRTY_MINUTES_MS) return;
-
-    const interval = setInterval(() => {
-      setNow(Date.now());
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isAuthor, post.createdAt, THIRTY_MINUTES_MS, now]);
-
-  const timeElapsedMs = now - post.createdAt;
-  const timeRemainingMs = Math.max(0, THIRTY_MINUTES_MS - timeElapsedMs);
-  const canDelete = isAuthor && timeRemainingMs > 0;
-
-  const formatRemainingTimer = (ms: number) => {
-    const totalSec = Math.floor(ms / 1000);
-    const mins = Math.floor(totalSec / 60);
-    const secs = totalSec % 60;
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  const handleDeleteClick = async () => {
-    if (!canDelete || isDeleting) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-
-    const res = await deleteSerialPost(post.id, currentUserToken, post.authorToken, post.createdAt);
-    if (!res.success) {
-      setDeleteError(res.message || 'Could not delete post.');
-      setIsDeleting(false);
-      setShowConfirmDelete(false);
-    }
-  };
 
   // Subscribe to comments when comment section is opened
   useEffect(() => {
@@ -212,79 +165,10 @@ export const PostCard: React.FC<PostCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono" title={formatExactDate(post.createdAt)}>
-            {/* Delete button for author within 30 minutes */}
-            {isAuthor && (
-              canDelete ? (
-                <button
-                  type="button"
-                  id={`btn-delete-post-${post.id}`}
-                  onClick={() => setShowConfirmDelete(!showConfirmDelete)}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors"
-                  title="Delete post (Allowed within 30 minutes of posting)"
-                >
-                  <Trash2 className="w-3 h-3 text-rose-600" />
-                  <span>Delete</span>
-                  <span className="font-mono text-[10px] bg-rose-200/60 text-rose-800 px-1 rounded">
-                    {formatRemainingTimer(timeRemainingMs)}
-                  </span>
-                </button>
-              ) : (
-                <span
-                  className="inline-flex items-center gap-1 text-[10px] text-zinc-400 font-mono px-2 py-0.5 rounded-md bg-zinc-50 border border-zinc-200/60"
-                  title="Posts can only be deleted within 30 minutes of creation"
-                >
-                  <Timer className="w-3 h-3 text-zinc-400" />
-                  <span>30m expired</span>
-                </span>
-              )
-            )}
-
             <Clock className="w-3 h-3 ml-1" />
             <span>{formatTimeAgo(post.createdAt)}</span>
           </div>
         </div>
-
-        {/* Delete Confirmation Drawer */}
-        {showConfirmDelete && (
-          <div className="mb-3 p-3 rounded-xl bg-rose-50/90 border border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-1.5">
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              <span>
-                Delete this post? You have <strong>{formatRemainingTimer(timeRemainingMs)}</strong> remaining.
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
-              <button
-                type="button"
-                onClick={() => setShowConfirmDelete(false)}
-                className="px-2.5 py-1 rounded-lg bg-white border border-rose-200 text-zinc-700 hover:bg-zinc-50 font-medium text-xs transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                id={`btn-confirm-delete-${post.id}`}
-                disabled={isDeleting}
-                onClick={handleDeleteClick}
-                className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs shadow-xs transition-colors flex items-center gap-1"
-              >
-                {isDeleting ? (
-                  <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Trash2 className="w-3 h-3" />
-                )}
-                <span>Confirm Delete</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {deleteError && (
-          <div className="mb-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2 font-medium">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>{deleteError}</span>
-          </div>
-        )}
 
         {/* Post Main Content */}
         <div className="text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal my-3">

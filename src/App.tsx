@@ -7,6 +7,7 @@ import { InfoModal } from './components/InfoModal';
 import { DownloadModal } from './components/DownloadModal';
 import { SerialPost } from './types';
 import { soundPlayer } from './lib/audio';
+import { checkIsSimilarPost } from './lib/similarity';
 import { computeCurrentLikesForPost } from './lib/likesEngine';
 import { computeCurrentCommentsForPost } from './lib/commentsEngine';
 import { startAutoPublishEngine, stopAutoPublishEngine } from './lib/autoPublisher';
@@ -29,6 +30,7 @@ import {
   Layers,
   MessageSquareOff,
   Plus,
+  ArrowDown,
 } from 'lucide-react';
 
 const INITIAL_FALLBACK_POSTS: SerialPost[] = [
@@ -92,8 +94,28 @@ export default function App() {
   const [searchedSerialPost, setSearchedSerialPost] = useState<SerialPost | null>(null);
   const [isSearchingSerial, setIsSearchingSerial] = useState<boolean>(false);
 
+  // Scroll to bottom & new post notification states
+  const [showScrollDown, setShowScrollDown] = useState<boolean>(false);
+  const [hasNewPosts, setHasNewPosts] = useState<boolean>(false);
+
   const authorToken = useMemo(() => getOrCreateAnonymousToken(), []);
   const previousPostsCountRef = useRef<number>(0);
+
+  // Monitor scroll position
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollThreshold = 250;
+      const isAwayFromBottom =
+        window.innerHeight + window.scrollY < document.documentElement.scrollHeight - scrollThreshold;
+      setShowScrollDown(isAwayFromBottom);
+      if (!isAwayFromBottom) {
+        setHasNewPosts(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Next continuous serial number calculation
   const nextSerialNumber = useMemo(() => {
@@ -131,6 +153,11 @@ export default function App() {
             const newest = realtimePosts[realtimePosts.length - 1];
             if (newest.authorToken !== authorToken && soundEnabled) {
               soundPlayer.playPop();
+            }
+            const isAwayFromBottom =
+              window.innerHeight + window.scrollY < document.documentElement.scrollHeight - 250;
+            if (isAwayFromBottom) {
+              setHasNewPosts(true);
             }
           }
           previousPostsCountRef.current = realtimePosts.length;
@@ -219,6 +246,12 @@ export default function App() {
 
   // Publish a new post
   const handlePublishPost = async (content: string, tag?: string): Promise<boolean> => {
+    // Duplicate / Similarity Protection Check
+    const similarityResult = checkIsSimilarPost(content, posts);
+    if (similarityResult.isDuplicate) {
+      return false;
+    }
+
     setIsPublishing(true);
     if (soundEnabled) {
       soundPlayer.playSend();
@@ -373,6 +406,7 @@ export default function App() {
           isPublishing={isPublishing}
           isOpen={isCreateOpen}
           onOpenChange={setIsCreateOpen}
+          existingPosts={posts}
         />
 
         {/* Searching Status */}
@@ -445,6 +479,29 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* Floating Scroll to Bottom Arrow Button (Clean single arrow icon, no circle background) */}
+      {(showScrollDown || hasNewPosts) && (
+        <button
+          id="btn-scroll-bottom"
+          onClick={() => {
+            window.scrollTo({
+              top: document.documentElement.scrollHeight,
+              behavior: 'smooth',
+            });
+            setHasNewPosts(false);
+          }}
+          className={`fixed bottom-20 left-6 z-30 p-2 transition-all duration-300 active:scale-90 focus:outline-none ${
+            hasNewPosts
+              ? 'text-emerald-600 animate-bounce drop-shadow'
+              : 'text-black hover:text-zinc-700 drop-shadow'
+          }`}
+          title="Scroll to bottom"
+          aria-label="Scroll to bottom"
+        >
+          <ArrowDown className="w-6 h-6 stroke-[2.5]" />
+        </button>
+      )}
 
       {/* Floating '+' Action Button */}
       {!isCreateOpen && (
