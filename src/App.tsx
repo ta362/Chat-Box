@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
+import { InstallBanner } from './components/InstallBanner';
 import { CreatePostCard } from './components/CreatePostCard';
 import { PostCard } from './components/PostCard';
 import { InfoModal } from './components/InfoModal';
@@ -313,6 +314,9 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-100 text-zinc-900 flex flex-col selection:bg-zinc-200">
+      {/* Top Floating Browser Install Banner */}
+      <InstallBanner />
+
       {/* Top Header */}
       <Header
         onlineCount={onlineCount}

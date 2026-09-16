@@ -1,11 +1,11 @@
 import React from 'react';
-import { Layers, Search, Info, Hash, Download, Sparkles } from 'lucide-react';
+import { Layers, Search, Info } from 'lucide-react';
 
 interface HeaderProps {
   onlineCount: number;
   totalPosts: number;
   onOpenInfo: () => void;
-  onOpenDownload: () => void;
+  onOpenDownload?: () => void;
   searchQuery: string;
   onSearchChange: (query: string) => void;
   isSearchOpen: boolean;
@@ -16,7 +16,6 @@ export const Header: React.FC<HeaderProps> = ({
   onlineCount,
   totalPosts,
   onOpenInfo,
-  onOpenDownload,
   searchQuery,
   onSearchChange,
   isSearchOpen,
@@ -59,18 +58,6 @@ export const Header: React.FC<HeaderProps> = ({
             aria-label="Search posts"
           >
             <Search className="w-4 h-4" />
-          </button>
-
-          {/* Download & Export Button */}
-          <button
-            id="btn-open-download"
-            onClick={onOpenDownload}
-            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors flex items-center gap-1 text-xs font-medium"
-            title="Download Post Feed or Install PWA"
-            aria-label="Download options"
-          >
-            <Download className="w-4 h-4 text-zinc-700" />
-            <span className="hidden sm:inline font-semibold">Export</span>
           </button>
 
           {/* Info Modal Trigger */}

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Download,
-  FileText,
-  FileCode,
   Smartphone,
-  Copy,
-  Check,
-  HardDriveDownload,
+  Monitor,
+  CheckCircle2,
+  Sparkles,
   ArrowRight,
+  Share2,
+  PlusSquare,
+  Compass,
+  Check,
 } from 'lucide-react';
 import { SerialPost } from '../types';
 
@@ -22,15 +24,13 @@ interface DownloadModalProps {
 export const DownloadModal: React.FC<DownloadModalProps> = ({
   isOpen,
   onClose,
-  posts,
-  totalCount,
 }) => {
-  const [copied, setCopied] = useState<boolean>(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isAppInstalled, setIsAppInstalled] = useState<boolean>(false);
+  const [installSuccess, setInstallSuccess] = useState<boolean>(false);
 
   useEffect(() => {
-    // Detect PWA install event
+    // Catch browser's native PWA install prompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -38,6 +38,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
     const handleAppInstalled = () => {
       setIsAppInstalled(true);
+      setInstallSuccess(true);
       setDeferredPrompt(null);
     };
 
@@ -56,243 +57,173 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
   if (!isOpen) return null;
 
-  // 1. Generate text transcript
-  const generateTextTranscript = () => {
-    const header = `========================================\nANONYMOUS SERIAL POST BOARD - EXPORT LOG\nExported: ${new Date().toLocaleString()}\nTotal Sequential Posts: ${posts.length}\n========================================\n\n`;
-
-    const body = posts
-      .map((p) => {
-        const timeStr = new Date(p.createdAt).toLocaleString();
-        const serialStr = `#${p.serialNumber}`;
-        const tagStr = p.tag ? ` [Tag: ${p.tag}]` : '';
-        const statsStr = ` (Likes: ${p.likesCount || 0}, Comments: ${p.commentsCount || 0})`;
-        return `[Post ${serialStr}]${tagStr} - ${timeStr}${statsStr}\n${p.content}\n`;
-      })
-      .join('\n----------------------------------------\n\n');
-
-    return header + body;
-  };
-
-  // 2. Download .txt file
-  const handleDownloadTxt = () => {
-    const textContent = generateTextTranscript();
-    const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Anonymous-Serial-Posts-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // 3. Download .json file
-  const handleDownloadJson = () => {
-    const dataToExport = {
-      app: 'Anonymous Serial Posts',
-      exportDate: new Date().toISOString(),
-      totalPosts: posts.length,
-      posts: posts.map((p) => ({
-        serialNumber: p.serialNumber,
-        content: p.content,
-        tag: p.tag || null,
-        likesCount: p.likesCount,
-        commentsCount: p.commentsCount,
-        createdAt: p.createdAt,
-        isoTime: new Date(p.createdAt).toISOString(),
-        reactions: p.reactions || {},
-      })),
-    };
-
-    const blob = new Blob([JSON.stringify(dataToExport, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Anonymous-Serial-Posts-Backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  // 4. Copy to Clipboard
-  const handleCopyTranscript = async () => {
-    try {
-      const textContent = generateTextTranscript();
-      await navigator.clipboard.writeText(textContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // fallback
-    }
-  };
-
-  // 5. Trigger PWA Install
+  // Direct 1-click install handler
   const handleInstallApp = async () => {
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setIsAppInstalled(true);
+      try {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setIsAppInstalled(true);
+          setInstallSuccess(true);
+        }
+        setDeferredPrompt(null);
+      } catch (err) {
+        console.error('Install prompt failed:', err);
       }
-      setDeferredPrompt(null);
     } else {
-      alert(
-        'To install on mobile / desktop:\n\n• On Chrome/Android: Tap (⋮) menu and select "Install app" or "Add to Home screen".\n• On iPhone/Safari: Tap Share (⬆) and select "Add to Home Screen".'
-      );
+      // If browser doesn't support direct programmatic prompt, the modal below shows visual instructions
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+    <div
+      id="browser-download-modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-zinc-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+    >
       <div
-        className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden flex flex-col max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
+        id="browser-download-modal-container"
+        className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-zinc-200 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-150"
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-100 bg-zinc-50/50">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-zinc-100 bg-zinc-50/80">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-zinc-900 text-white rounded-xl shadow-2xs">
-              <Download className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-zinc-900 text-white flex items-center justify-center shadow-xs">
+              <Download className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-zinc-900">
-                Export & Download
-              </h2>
-              <p className="text-xs text-zinc-500 font-mono">
-                {posts.length} serial posts ready to export
+              <h3 className="font-bold text-zinc-900 text-base leading-tight">
+                Download & Install App
+              </h3>
+              <p className="text-xs text-zinc-500">
+                Install directly to your Browser, Mobile, or PC
               </p>
             </div>
           </div>
           <button
-            id="btn-close-download-modal"
+            id="btn-close-browser-download-modal"
             onClick={onClose}
-            className="p-2 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-xl transition-colors"
+            className="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-800 hover:bg-zinc-200/60 transition-colors"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-4 overflow-y-auto">
-          {/* Section 1: Chat Data Downloads */}
-          <div>
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
-              Post Feed Downloads
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {/* Text File */}
-              <button
-                id="btn-download-txt"
-                onClick={handleDownloadTxt}
-                className="flex items-start gap-3 p-3.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-2xl text-left transition-all group active:scale-98"
-              >
-                <div className="p-2 bg-blue-50 text-blue-600 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                  <FileText className="w-5 h-5" />
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto text-zinc-700 text-sm leading-relaxed">
+          {/* Main Action Banner */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950 text-white shadow-md relative overflow-hidden">
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    <Sparkles className="w-3 h-3" /> PWA Web App
+                  </span>
+                  <span className="text-[11px] text-zinc-400 font-mono">No App Store Required</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-zinc-900">
-                      Text Log (.txt)
-                    </span>
-                    <HardDriveDownload className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-900 transition-colors" />
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Clean sequential post transcript.
-                  </p>
-                </div>
-              </button>
+                <h4 className="text-base font-bold text-white">
+                  Add to Home Screen / PC
+                </h4>
+                <p className="text-xs text-zinc-300">
+                  Runs instantly in full-screen mode with ultra-fast offline cache.
+                </p>
+              </div>
 
-              {/* JSON File */}
-              <button
-                id="btn-download-json"
-                onClick={handleDownloadJson}
-                className="flex items-start gap-3 p-3.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 rounded-2xl text-left transition-all group active:scale-98"
-              >
-                <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                  <FileCode className="w-5 h-5" />
+              {/* Install Button */}
+              {deferredPrompt ? (
+                <button
+                  id="btn-trigger-direct-install"
+                  onClick={handleInstallApp}
+                  className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white hover:bg-zinc-100 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-zinc-900" />
+                  <span>1-Click Download</span>
+                </button>
+              ) : isAppInstalled || installSuccess ? (
+                <div className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold">
+                  <Check className="w-4 h-4 text-emerald-400" />
+                  <span>Installed on Device</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-zinc-900">
-                      Raw Data (.json)
-                    </span>
-                    <HardDriveDownload className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-900 transition-colors" />
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-0.5">
-                    Full structured database export.
-                  </p>
-                </div>
-              </button>
-            </div>
-
-            {/* Copy button */}
-            <button
-              id="btn-copy-transcript"
-              onClick={handleCopyTranscript}
-              className="w-full mt-2.5 flex items-center justify-center gap-2 py-2.5 px-4 bg-white hover:bg-zinc-50 border border-zinc-200 rounded-xl text-xs font-semibold text-zinc-700 transition-all shadow-2xs"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4 text-emerald-600" />
-                  <span className="text-emerald-700">Copied to Clipboard!</span>
-                </>
               ) : (
-                <>
-                  <Copy className="w-4 h-4 text-zinc-500" />
-                  <span>Copy Full Text Transcript</span>
-                </>
+                <div className="w-full sm:w-auto shrink-0 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-zinc-800 text-zinc-300 rounded-xl text-xs font-medium">
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Follow Steps Below</span>
+                </div>
               )}
-            </button>
+            </div>
           </div>
 
-          {/* Section 2: Install / Download App to Phone or PC */}
-          <div className="pt-2 border-t border-zinc-100">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
-              Install App on Device (PWA)
-            </h3>
-            <div className="p-4 bg-zinc-900 text-white rounded-2xl">
-              <div className="flex items-start gap-3">
-                <div className="p-2.5 bg-zinc-800 rounded-xl text-emerald-400">
-                  <Smartphone className="w-5 h-5" />
+          {/* Device Specific Instructions */}
+          <div className="space-y-2.5">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400 font-mono">
+              How to Install on Your Browser:
+            </h4>
+
+            {/* Android & Google Chrome */}
+            <div className="border border-zinc-200 rounded-2xl p-3.5 bg-zinc-50/60 space-y-2">
+              <div className="flex items-center gap-2 text-zinc-900 font-semibold text-xs">
+                <div className="p-1.5 rounded-lg bg-white border border-zinc-200 text-zinc-800">
+                  <Smartphone className="w-3.5 h-3.5" />
                 </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-semibold text-white">
-                    Add to Mobile Home Screen or PC
-                  </h4>
-                  <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    Install Anonymous Posts directly on your device for fast 1-tap access anytime.
-                  </p>
-                  
-                  <button
-                    id="btn-install-pwa"
-                    onClick={handleInstallApp}
-                    className="mt-3.5 inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 rounded-xl text-xs font-bold transition-all shadow-xs active:scale-95"
-                  >
-                    <span>{isAppInstalled ? 'App Already Installed' : 'Install / Download App'}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <span>Android / Google Chrome</span>
               </div>
+              <ol className="text-xs text-zinc-600 space-y-1 list-decimal list-inside pl-1">
+                <li>Tap the browser menu button <strong>(⋮)</strong> in the top-right corner.</li>
+                <li>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</li>
+                <li>Confirm to add the app icon directly to your home screen.</li>
+              </ol>
+            </div>
+
+            {/* iPhone / iPad (iOS Safari) */}
+            <div className="border border-zinc-200 rounded-2xl p-3.5 bg-zinc-50/60 space-y-2">
+              <div className="flex items-center gap-2 text-zinc-900 font-semibold text-xs">
+                <div className="p-1.5 rounded-lg bg-white border border-zinc-200 text-zinc-800">
+                  <Share2 className="w-3.5 h-3.5" />
+                </div>
+                <span>iPhone & iPad (Safari)</span>
+              </div>
+              <ol className="text-xs text-zinc-600 space-y-1 list-decimal list-inside pl-1">
+                <li>Tap the <strong>Share</strong> button (box with an upward arrow <Share2 className="w-3 h-3 inline" />).</li>
+                <li>Scroll down and select <strong>"Add to Home Screen"</strong> (➕).</li>
+                <li>Tap <strong>Add</strong> in the top right corner.</li>
+              </ol>
+            </div>
+
+            {/* PC / Mac Desktop (Chrome, Edge, Brave) */}
+            <div className="border border-zinc-200 rounded-2xl p-3.5 bg-zinc-50/60 space-y-2">
+              <div className="flex items-center gap-2 text-zinc-900 font-semibold text-xs">
+                <div className="p-1.5 rounded-lg bg-white border border-zinc-200 text-zinc-800">
+                  <Monitor className="w-3.5 h-3.5" />
+                </div>
+                <span>Desktop (Chrome, Edge, Brave, Opera)</span>
+              </div>
+              <ol className="text-xs text-zinc-600 space-y-1 list-decimal list-inside pl-1">
+                <li>Look at your browser's address bar at the top.</li>
+                <li>Click the <strong>Install App icon (💻 / ⊕)</strong> on the right side of the address bar.</li>
+                <li>Click <strong>Install</strong> to run it in a standalone window on your PC.</li>
+              </ol>
             </div>
           </div>
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3.5 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between text-xs text-zinc-500">
-          <span>Sequential Serial Feed</span>
+        <div className="px-5 sm:px-6 py-3.5 bg-zinc-50/80 border-t border-zinc-100 flex items-center justify-between">
+          <span className="text-[11px] text-zinc-400 font-mono">
+            Fast, Lightweight & Secure
+          </span>
           <button
+            id="btn-close-download-guide"
             onClick={onClose}
-            className="font-medium text-zinc-800 hover:underline"
+            className="px-4 py-2 bg-zinc-900 hover:bg-black text-white text-xs font-semibold rounded-xl transition-all shadow-xs"
           >
-            Close
+            Got It
           </button>
         </div>
       </div>
     </div>
   );
 };
-
