@@ -1,48 +1,52 @@
 import { SerialPost } from '../types';
 
 /**
- * Target growth duration: 6.5 hours (between 6 and 7 hours)
+ * Target growth duration: 6.5 hours
  */
 export const TARGET_GROWTH_DURATION_MS = 6.5 * 60 * 60 * 1000;
 
 /**
- * Returns a unique, distinct target max likes count for a post (e.g., 5k, 20k, 50k, 85k, 120k).
+ * Returns a unique hash seed for a post based on its serial number and ID
+ */
+function getPostHashSeed(post: SerialPost): number {
+  let hash = post.serialNumber * 7919;
+  if (post.id) {
+    for (let i = 0; i < post.id.length; i++) {
+      hash = (hash * 31 + post.id.charCodeAt(i)) % 999983;
+    }
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Returns a unique, distinct target max likes count for each post
  */
 export function getPostTargetLikes(post: SerialPost): number {
   if (typeof post.targetLikes === 'number' && post.targetLikes > 0) {
     return post.targetLikes;
   }
 
-  // Deterministic unique hash based on serial number & post ID
-  const hashSeed = Math.abs(
-    post.serialNumber * 9301 + (post.id ? post.id.charCodeAt(0) * 1337 : 42)
-  ) % 100;
+  const seed = getPostHashSeed(post);
+  const percentBucket = seed % 100;
 
-  // Distribute targets realistically across ranges:
-  // 15% get ~5k (3k - 8k)
-  // 35% get ~20k (12k - 30k)
-  // 30% get ~50k (40k - 85k)
-  // 20% get ~150k - 280k
-  if (hashSeed < 15) {
-    return 3500 + hashSeed * 300; // ~3.5k to 8k
-  } else if (hashSeed < 50) {
-    return 12000 + (hashSeed - 15) * 500; // ~12k to 29.5k (around 20k)
-  } else if (hashSeed < 80) {
-    return 40000 + (hashSeed - 50) * 1500; // ~40k to 85k (around 50k)
+  // Distribute unique targets across diverse ranges so no two posts feel identical:
+  // 15% get small targets: 1,500 - 8,000
+  // 35% get medium targets: 12,000 - 38,000
+  // 30% get large targets: 45,000 - 95,000
+  // 20% get viral targets: 120,000 - 290,000
+  if (percentBucket < 15) {
+    return 1500 + (seed % 6500);
+  } else if (percentBucket < 50) {
+    return 12000 + (seed % 26000);
+  } else if (percentBucket < 80) {
+    return 45000 + (seed % 50000);
   } else {
-    return 110000 + (hashSeed - 80) * 8500; // ~110k to 280k
+    return 120000 + (seed % 170000);
   }
 }
 
 /**
- * Calculates current likes based on post creation age.
- * Timed Phase Schedule:
- * - 0 - 2 mins: Quiet start (0 to ~14 likes)
- * - 2 - 3.5 mins: Jump to ~200 likes, then flat pause (gap)
- * - 3.5 - 5.5 mins: Jump to ~800 likes, then flat pause (gap)
- * - 5.5 - 8.5 mins: Jump to ~2.2k likes, then flat pause (gap)
- * - 8.5m to 6.5 hours: Pure stepped jumps ("gap deya deya barba") every 15 minutes
- * - After 6.5 hours: STOPPED completely at targetMax!
+ * Calculates current likes based on post creation age, ensuring EVERY post has a totally unique like count.
  */
 export function computeCurrentLikesForPost(post: SerialPost, currentUserToken?: string): number {
   const targetMax = getPostTargetLikes(post);
@@ -50,39 +54,46 @@ export function computeCurrentLikesForPost(post: SerialPost, currentUserToken?: 
   const elapsedSeconds = Math.max(0, (now - post.createdAt) / 1000);
   const elapsedMinutes = elapsedSeconds / 60;
 
+  const seed = getPostHashSeed(post);
+  // Post-specific variance factor between 0.70 and 1.30 to make every post progress uniquely
+  const varianceFactor = 0.7 + ((seed % 60) / 100);
+
   let baseLikes = 0;
 
   if (elapsedMinutes < 2) {
-    // 0 - 2 mins: Quiet start (0 - 14 likes)
-    baseLikes = Math.floor(elapsedSeconds * 0.12);
+    // 0 - 2 mins: Initial random organic growth (e.g., 3 to 45 likes, varying per post)
+    const initialRate = 0.08 + ((seed % 15) * 0.02); // 0.08 to 0.38 per second
+    baseLikes = Math.floor(elapsedSeconds * initialRate);
   } else if (elapsedMinutes < 3.5) {
-    // 2 - 3.5 mins: Jump to ~200 likes, flat pause during gap
-    baseLikes = 200;
+    // 2 - 3.5 mins: First jump phase (~150 to ~450 likes, unique per post)
+    const baseVal = Math.min(targetMax, 180 + (seed % 270));
+    baseLikes = Math.floor(baseVal * varianceFactor);
   } else if (elapsedMinutes < 5.5) {
-    // 3.5 - 5.5 mins: Jump to ~800 likes, flat pause during gap
-    baseLikes = 800;
+    // 3.5 - 5.5 mins: Second jump phase (~600 to ~1400 likes, unique per post)
+    const baseVal = Math.min(targetMax, 650 + (seed % 750));
+    baseLikes = Math.floor(baseVal * varianceFactor);
   } else if (elapsedMinutes < 8.5) {
-    // 5.5 - 8.5 mins: Jump to ~2.2k likes, flat pause during gap
-    baseLikes = Math.min(targetMax, 2200);
-  } else if (elapsedMinutes < 390) { // 390 minutes = 6.5 hours
-    // Pure "gap deya deya" staircase: Every 15 minutes, there is a jump with a flat gap pause in-between
-    const gapBlockMinutes = 15;
-    const startVal = Math.min(targetMax, 2200);
-    const totalBlocks = Math.ceil((390 - 8.5) / gapBlockMinutes); // ~25 gap blocks
-    const currentBlock = Math.floor((elapsedMinutes - 8.5) / gapBlockMinutes);
+    // 5.5 - 8.5 mins: Third jump phase (~1800 to ~3500 likes, unique per post)
+    const baseVal = Math.min(targetMax, 1800 + (seed % 1700));
+    baseLikes = Math.floor(baseVal * varianceFactor);
+  } else if (elapsedMinutes < 390) { // Up to 6.5 hours
+    // Stepped staircase growth unique per post
+    const startVal = Math.min(targetMax, 1800 + (seed % 1700));
+    const progressRatio = Math.min(1, (elapsedMinutes - 8.5) / (390 - 8.5));
+    const curvedProgress = Math.pow(progressRatio, 0.75);
 
-    // Curved progression across gap steps
-    const stepProgress = Math.min(1, currentBlock / totalBlocks);
-    const curvedProgress = Math.pow(stepProgress, 0.75);
+    // Add post-specific micro fluctuation based on minute block
+    const minuteBlock = Math.floor(elapsedMinutes / 5);
+    const blockNoise = ((seed + minuteBlock * 37) % 19) - 9;
 
-    baseLikes = Math.floor(startVal + (targetMax - startVal) * curvedProgress);
+    baseLikes = Math.floor(startVal + (targetMax - startVal) * curvedProgress + blockNoise);
   } else {
-    // 6.5+ hours: STOPPED permanently at targetMax!
+    // 6.5+ hours: Reached targetMax
     baseLikes = targetMax;
   }
 
-  // Cap at post targetMax
-  baseLikes = Math.min(targetMax, baseLikes);
+  // Ensure bounds
+  baseLikes = Math.max(0, Math.min(targetMax, baseLikes));
 
   // Preserve user's personal manual like if active
   const userHasLiked =
