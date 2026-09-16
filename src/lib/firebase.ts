@@ -10,8 +10,10 @@ import {
   updateDoc,
   doc,
   increment,
+  limit,
   limitToLast,
   getDocs,
+  runTransaction,
   Timestamp,
 } from 'firebase/firestore';
 import { ChatMessage } from '../types';
@@ -21,6 +23,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
 
 const MESSAGES_COLLECTION = 'messages';
+const META_DOC_ID = 'chat_meta';
 
 /**
  * Subscribe to real-time chat messages from Firestore (active stream of latest 1000 messages)
@@ -31,7 +34,7 @@ export function subscribeToMessages(
 ) {
   const q = query(
     collection(db, MESSAGES_COLLECTION),
-    orderBy('createdAt', 'asc'),
+    orderBy('serialNumber', 'asc'),
     limitToLast(1000)
   );
 
@@ -43,7 +46,7 @@ export function subscribeToMessages(
         const data = docSnap.data();
         msgs.push({
           id: docSnap.id,
-          serialNumber: data.serialNumber || 1,
+          serialNumber: Number(data.serialNumber) || 1,
           text: data.text || '',
           createdAt:
             data.createdAt instanceof Timestamp
@@ -56,7 +59,7 @@ export function subscribeToMessages(
           replyTo: data.replyTo || null,
         });
       });
-      // Sort by serialNumber
+      // Sort strictly by continuous serialNumber ascending
       msgs.sort((a, b) => a.serialNumber - b.serialNumber);
       onUpdate(msgs);
     },
@@ -68,7 +71,7 @@ export function subscribeToMessages(
 }
 
 /**
- * Fetch a specific chat message by its serial number (even if compressed/archived)
+ * Fetch a specific chat message by its serial number
  */
 export async function fetchMessageBySerial(
   serialNumber: number
@@ -76,7 +79,8 @@ export async function fetchMessageBySerial(
   try {
     const q = query(
       collection(db, MESSAGES_COLLECTION),
-      where('serialNumber', '==', serialNumber)
+      where('serialNumber', '==', serialNumber),
+      limit(1)
     );
     const snap = await getDocs(q);
     if (!snap.empty) {
@@ -116,7 +120,7 @@ export async function fetchOlderArchivedMessages(
       collection(db, MESSAGES_COLLECTION),
       where('serialNumber', '<', beforeSerial),
       orderBy('serialNumber', 'desc'),
-      limitToLast(count)
+      limit(count)
     );
     const snap = await getDocs(q);
     const msgs: ChatMessage[] = [];
@@ -145,34 +149,67 @@ export async function fetchOlderArchivedMessages(
 }
 
 /**
- * Send an anonymous message to Firestore
+ * Send an anonymous message with strictly sequential serial numbers (#1, #2, #3, #4...)
  */
 export async function sendChatMessage(
   text: string,
   authorToken: string,
   replyTo?: { serialNumber: number; text: string } | null
 ): Promise<ChatMessage> {
-  // Determine next serial number
-  const q = query(
-    collection(db, MESSAGES_COLLECTION),
-    orderBy('serialNumber', 'desc'),
-    limitToLast(1)
-  );
-  
+  const trimmed = text.trim();
+  const counterRef = doc(db, 'meta', META_DOC_ID);
+
   let nextSerial = 1;
+
   try {
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const topDoc = snap.docs[0].data();
-      nextSerial = (topDoc.serialNumber || 0) + 1;
-    }
+    // 1. Try atomic transaction to ensure consecutive serial numbers across all users
+    nextSerial = await runTransaction(db, async (transaction) => {
+      const metaDoc = await transaction.get(counterRef);
+      let currentSerial = 0;
+
+      if (metaDoc.exists() && typeof metaDoc.data().lastSerialNumber === 'number') {
+        currentSerial = metaDoc.data().lastSerialNumber;
+      } else {
+        // Find existing maximum serial if meta doc not yet initialized
+        const highestSerialQuery = query(
+          collection(db, MESSAGES_COLLECTION),
+          orderBy('serialNumber', 'desc'),
+          limit(1)
+        );
+        const snap = await getDocs(highestSerialQuery);
+        if (!snap.empty) {
+          currentSerial = Number(snap.docs[0].data().serialNumber) || 0;
+        }
+      }
+
+      const assignedSerial = currentSerial + 1;
+      transaction.set(counterRef, { lastSerialNumber: assignedSerial, updatedAt: Date.now() }, { merge: true });
+      return assignedSerial;
+    });
   } catch (err) {
-    console.warn('Could not query last serial, fallback to calculation:', err);
+    console.warn('Transaction serial assignment fallback:', err);
+    // Fallback: fetch highest serial number directly
+    try {
+      const highestSerialQuery = query(
+        collection(db, MESSAGES_COLLECTION),
+        orderBy('serialNumber', 'desc'),
+        limit(1)
+      );
+      const snap = await getDocs(highestSerialQuery);
+      if (!snap.empty) {
+        nextSerial = (Number(snap.docs[0].data().serialNumber) || 0) + 1;
+      } else {
+        nextSerial = 1;
+      }
+    } catch (fallbackErr) {
+      console.error('Failed to get last serial number:', fallbackErr);
+      nextSerial = 1;
+    }
   }
 
   const newMsgData = {
     serialNumber: nextSerial,
-    text: text.trim(),
+    text: trimmed,
     createdAt: Date.now(),
     authorToken,
     reactions: {},

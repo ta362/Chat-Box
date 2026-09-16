@@ -47,7 +47,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const formattedSerialNumber = `#${String(message.serialNumber).padStart(3, '0')}`;
+  const formattedSerialNumber = `#${message.serialNumber}`;
   const reactionsList = Object.entries(message.reactions || {}).filter(
     (entry): entry is [string, number] => typeof entry[1] === 'number' && entry[1] > 0
   );
@@ -122,8 +122,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({
       {/* Reply Snippet if message is a reply */}
       {message.replyTo && (
         <div className="mb-2 pl-2.5 py-1 border-l-2 border-zinc-300 text-xs text-zinc-500 bg-zinc-100/50 rounded-r">
-          <span className="font-mono font-medium text-zinc-700">
-            #{String(message.replyTo.serialNumber).padStart(3, '0')}:
+          <span className="font-mono font-semibold text-zinc-800">
+            #{message.replyTo.serialNumber}:
           </span>{' '}
           <span className="italic line-clamp-1">{message.replyTo.text}</span>
         </div>

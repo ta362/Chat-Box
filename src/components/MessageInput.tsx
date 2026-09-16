@@ -83,7 +83,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
               <span>
                 Replying to{' '}
                 <strong className="font-mono text-zinc-900">
-                  #{String(replyingTo.serialNumber).padStart(3, '0')}
+                  #{replyingTo.serialNumber}
                 </strong>
                 : <span className="italic truncate">{replyingTo.text}</span>
               </span>
