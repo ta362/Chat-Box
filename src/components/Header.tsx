@@ -1,5 +1,5 @@
-import React from 'react';
-import { Layers, Search, Info } from 'lucide-react';
+import React, { useState } from 'react';
+import { Layers, Search, Info, Share2, Check } from 'lucide-react';
 
 interface HeaderProps {
   onlineCount: number;
@@ -28,6 +28,31 @@ export const Header: React.FC<HeaderProps> = ({
   isSearchOpen,
   onToggleSearch,
 }) => {
+  const [copiedAppShare, setCopiedAppShare] = useState(false);
+
+  const handleShareApp = async () => {
+    const shareData = {
+      title: 'Anonymous Serial Posts',
+      text: 'Check out this Anonymous Serial Post Board with real-time posts!',
+      url: window.location.href,
+    };
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch {
+        // Fallback to clipboard if system share dismissed
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopiedAppShare(true);
+      setTimeout(() => setCopiedAppShare(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 w-full border-b border-zinc-200 bg-white/95 backdrop-blur-md transition-all">
       <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
@@ -50,7 +75,22 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1 sm:gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Share App Button */}
+          <button
+            id="btn-share-app"
+            onClick={handleShareApp}
+            className="p-2 rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 transition-colors"
+            title={copiedAppShare ? "Link copied!" : "Share App"}
+            aria-label="Share App"
+          >
+            {copiedAppShare ? (
+              <Check className="w-4 h-4 text-emerald-600" />
+            ) : (
+              <Share2 className="w-4 h-4" />
+            )}
+          </button>
+
           {/* Search Toggle */}
           <button
             id="btn-toggle-search"
