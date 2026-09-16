@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
-import { MessageItem } from './components/MessageItem';
-import { MessageInput } from './components/MessageInput';
+import { CreatePostCard } from './components/CreatePostCard';
+import { PostCard } from './components/PostCard';
 import { InfoModal } from './components/InfoModal';
 import { DownloadModal } from './components/DownloadModal';
-import { ChatMessage } from './types';
+import { SerialPost } from './types';
 import { soundPlayer } from './lib/audio';
 import {
   getOrCreateAnonymousToken,
@@ -12,329 +12,311 @@ import {
   setSoundPreference,
 } from './lib/storage';
 import {
-  subscribeToMessages,
-  sendChatMessage,
-  addMessageReaction,
-  fetchMessageBySerial,
-  fetchOlderArchivedMessages,
+  subscribeToPosts,
+  createSerialPost,
+  togglePostLike,
+  addPostReaction,
+  fetchPostBySerial,
 } from './lib/firebase';
-import { ArrowDown, MessageSquareOff, Archive, Loader2, Sparkles, Download } from 'lucide-react';
+import {
+  Sparkles,
+  Layers,
+  MessageSquareOff,
+  Plus,
+} from 'lucide-react';
 
-const INITIAL_FALLBACK_MESSAGES: ChatMessage[] = [
+const INITIAL_FALLBACK_POSTS: SerialPost[] = [
   {
-    id: "msg-init-1",
+    id: 'post-init-1',
     serialNumber: 1,
-    text: "Welcome to Anonymous Live Chat! 👋 No accounts, no user details. Completely open for everyone.",
-    createdAt: Date.now() - 1000 * 60 * 15,
-    reactions: { "👋": 4, "✨": 3 },
+    content: 'Welcome to the Anonymous Serial Post Board! 🎉\nEvery post is assigned a permanent, strictly sequential serial number (#1, #2, #3...). You can like, comment, and react anonymously!',
+    tag: 'Thoughts',
+    authorToken: 'system',
+    createdAt: Date.now() - 1000 * 60 * 30,
+    likesCount: 12,
+    commentsCount: 3,
+    likedBy: [],
+    reactions: { '🔥': 8, '❤️': 6, '💡': 4 },
   },
   {
-    id: "msg-init-2",
+    id: 'post-init-2',
     serialNumber: 2,
-    text: "Every message is recorded in serial order. Anyone who opens or downloads this app will see the real-time continuous stream.",
-    createdAt: Date.now() - 1000 * 60 * 10,
-    reactions: { "❤️": 2, "🔥": 5 },
+    content: 'What is a book, article, or idea that completely changed the way you think about life or work?',
+    tag: 'Question',
+    authorToken: 'system',
+    createdAt: Date.now() - 1000 * 60 * 20,
+    likesCount: 7,
+    commentsCount: 5,
+    likedBy: [],
+    reactions: { '💡': 9, '👏': 3 },
   },
   {
-    id: "msg-init-3",
+    id: 'post-init-3',
     serialNumber: 3,
-    text: "Say whatever is on your mind! Keep it respectful and enjoy true anonymous freedom. 💬",
-    createdAt: Date.now() - 1000 * 60 * 4,
-    reactions: { "💡": 3 },
+    content: 'Building simple, fast tools without logins is one of the purest forms of web utility. Drop your thoughts below!',
+    tag: 'Tech',
+    authorToken: 'system',
+    createdAt: Date.now() - 1000 * 60 * 10,
+    likesCount: 15,
+    commentsCount: 2,
+    likedBy: [],
+    reactions: { '🔥': 11, '👏': 5 },
   },
 ];
 
+const FILTER_TAGS = ['All', 'Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
+
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+  const [posts, setPosts] = useState<SerialPost[]>(() => {
     try {
-      const cached = localStorage.getItem('anon_local_messages_cache');
+      const cached = localStorage.getItem('anon_local_posts_cache');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch {
-      // fallback
+      // ignore
     }
-    return INITIAL_FALLBACK_MESSAGES;
+    return INITIAL_FALLBACK_POSTS;
   });
 
-  const [onlineCount, setOnlineCount] = useState<number>(() => Math.floor(Math.random() * 4) + 2);
-  const [isConnected, setIsConnected] = useState<boolean>(true);
-  const [isSending, setIsSending] = useState<boolean>(false);
-  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [onlineCount, setOnlineCount] = useState<number>(() => Math.floor(Math.random() * 5) + 3);
   const [soundEnabled, setSoundEnabledState] = useState<boolean>(getSoundPreference());
+  const [isPublishing, setIsPublishing] = useState<boolean>(false);
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState<boolean>(false);
-  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isUserScrolledUp, setIsUserScrolledUp] = useState<boolean>(false);
-  const [newMessagesWhileScrolled, setNewMessagesWhileScrolled] = useState<number>(0);
+  const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
 
-  // Archive & Serial Search States
-  const [archivedMessageResult, setArchivedMessageResult] = useState<ChatMessage | null>(null);
-  const [isSearchingArchive, setIsSearchingArchive] = useState<boolean>(false);
-  const [isLoadingMoreArchive, setIsLoadingMoreArchive] = useState<boolean>(false);
+  // Serial direct search state
+  const [searchedSerialPost, setSearchedSerialPost] = useState<SerialPost | null>(null);
+  const [isSearchingSerial, setIsSearchingSerial] = useState<boolean>(false);
 
   const authorToken = useMemo(() => getOrCreateAnonymousToken(), []);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const previousMessagesCountRef = useRef<number>(0);
+  const previousPostsCountRef = useRef<number>(0);
 
-  // Sync to local backup storage whenever messages change
+  // Next continuous serial number calculation
+  const nextSerialNumber = useMemo(() => {
+    if (posts.length === 0) return 1;
+    return Math.max(...posts.map((p) => p.serialNumber)) + 1;
+  }, [posts]);
+
+  // Persist local cache
   useEffect(() => {
     try {
-      if (messages.length > 0) {
-        localStorage.setItem('anon_local_messages_cache', JSON.stringify(messages.slice(-500)));
+      if (posts.length > 0) {
+        localStorage.setItem('anon_local_posts_cache', JSON.stringify(posts.slice(0, 300)));
       }
     } catch {
       // ignore
     }
-  }, [messages]);
+  }, [posts]);
 
-  // Toggle sound
+  // Sound preference toggle
   const handleToggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabledState(next);
     setSoundPreference(next);
   };
 
-  // Scroll to bottom smoothly
-  const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
-    messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
-    setNewMessagesWhileScrolled(0);
-    setIsUserScrolledUp(false);
-  };
-
-  // Detect scroll position
-  const handleScroll = () => {
-    if (!containerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isUp = distanceFromBottom > 120;
-    setIsUserScrolledUp(isUp);
-    if (!isUp) {
-      setNewMessagesWhileScrolled(0);
-    }
-  };
-
-  // Connect to Firebase Firestore Real-Time Stream
+  // Real-time Firestore Posts Subscription
   useEffect(() => {
-    setIsConnected(true);
-
-    const unsubscribe = subscribeToMessages(
-      (realtimeMsgs) => {
-        setIsConnected(true);
-        if (realtimeMsgs.length > 0) {
+    const unsubscribe = subscribeToPosts(
+      (realtimePosts) => {
+        if (realtimePosts.length > 0) {
           if (
-            previousMessagesCountRef.current > 0 &&
-            realtimeMsgs.length > previousMessagesCountRef.current
+            previousPostsCountRef.current > 0 &&
+            realtimePosts.length > previousPostsCountRef.current
           ) {
-            const newestMsg = realtimeMsgs[realtimeMsgs.length - 1];
-            if (newestMsg.authorToken !== authorToken && soundEnabled) {
+            const newest = realtimePosts[realtimePosts.length - 1];
+            if (newest.authorToken !== authorToken && soundEnabled) {
               soundPlayer.playPop();
             }
-
-            if (containerRef.current) {
-              const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-              const isNearBottom = scrollHeight - scrollTop - clientHeight < 150;
-              if (isNearBottom || newestMsg.authorToken === authorToken) {
-                setTimeout(() => scrollToBottom('smooth'), 50);
-              } else {
-                setNewMessagesWhileScrolled((c) => c + 1);
-              }
-            }
           }
-
-          previousMessagesCountRef.current = realtimeMsgs.length;
-          setMessages(realtimeMsgs);
+          previousPostsCountRef.current = realtimePosts.length;
+          setPosts(realtimePosts);
         }
       },
       (err) => {
-        console.warn('Firestore subscription status:', err);
+        console.warn('Posts real-time listener notice:', err);
       }
     );
 
-    const interval = setInterval(() => {
-      setOnlineCount((prev) => Math.max(1, prev + (Math.random() > 0.5 ? 1 : -1)));
-    }, 15000);
+    const timer = setInterval(() => {
+      setOnlineCount((c) => Math.max(2, c + (Math.random() > 0.5 ? 1 : -1)));
+    }, 18000);
 
     return () => {
       unsubscribe();
-      clearInterval(interval);
+      clearInterval(timer);
     };
   }, [authorToken, soundEnabled]);
 
-  // Initial scroll to bottom on load
+  // Serial search lookup
   useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom('auto');
-    }
-  }, [messages.length]);
-
-  // Check and query archive if search query looks like a serial number
-  useEffect(() => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed) {
-      setArchivedMessageResult(null);
-      setIsSearchingArchive(false);
+    const query = searchQuery.trim();
+    if (!query) {
+      setSearchedSerialPost(null);
+      setIsSearchingSerial(false);
       return;
     }
 
-    const serialNum = trimmed.startsWith('#')
-      ? parseInt(trimmed.slice(1), 10)
-      : /^\d+$/.test(trimmed)
-      ? parseInt(trimmed, 10)
+    const serialNum = query.startsWith('#')
+      ? parseInt(query.slice(1), 10)
+      : /^\d+$/.test(query)
+      ? parseInt(query, 10)
       : null;
 
     if (serialNum !== null && !isNaN(serialNum)) {
-      const foundLocally = messages.some((m) => m.serialNumber === serialNum);
-      if (!foundLocally) {
-        setIsSearchingArchive(true);
-        fetchMessageBySerial(serialNum)
-          .then((result) => {
-            setArchivedMessageResult(result);
-          })
-          .finally(() => {
-            setIsSearchingArchive(false);
-          });
+      const existsLocally = posts.some((p) => p.serialNumber === serialNum);
+      if (!existsLocally) {
+        setIsSearchingSerial(true);
+        fetchPostBySerial(serialNum)
+          .then((res) => setSearchedSerialPost(res))
+          .finally(() => setIsSearchingSerial(false));
       } else {
-        setArchivedMessageResult(null);
+        setSearchedSerialPost(null);
       }
     } else {
-      setArchivedMessageResult(null);
+      setSearchedSerialPost(null);
     }
-  }, [searchQuery, messages]);
+  }, [searchQuery, posts]);
 
-  // Load older compressed messages from archive
-  const handleLoadOlderCompressed = async () => {
-    if (messages.length === 0 || isLoadingMoreArchive) return;
-    const earliestSerial = messages[0].serialNumber;
-    if (earliestSerial <= 1) return;
-
-    setIsLoadingMoreArchive(true);
-    try {
-      const olderMsgs = await fetchOlderArchivedMessages(earliestSerial, 50);
-      if (olderMsgs.length > 0) {
-        setMessages((prev) => {
-          const map = new Map<string, ChatMessage>();
-          olderMsgs.forEach((m) => map.set(m.id, m));
-          prev.forEach((m) => map.set(m.id, m));
-          return Array.from(map.values()).sort((a, b) => a.serialNumber - b.serialNumber);
-        });
-      }
-    } catch (err) {
-      console.error('Failed to load older archive:', err);
-    } finally {
-      setIsLoadingMoreArchive(false);
-    }
-  };
-
-  // Send message handler to Firestore
-  const handleSendMessage = async (
-    text: string,
-    replyTo?: { serialNumber: number; text: string } | null
-  ) => {
-    setIsSending(true);
+  // Publish a new post
+  const handlePublishPost = async (content: string, tag?: string): Promise<boolean> => {
+    setIsPublishing(true);
     if (soundEnabled) {
       soundPlayer.playSend();
     }
 
     try {
-      await sendChatMessage(text, authorToken, replyTo);
-      setTimeout(() => scrollToBottom('smooth'), 50);
+      const newPost = await createSerialPost(content, authorToken, tag);
+      // Optimistic update
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === newPost.id || p.serialNumber === newPost.serialNumber)) {
+          return prev;
+        }
+        return [...prev, newPost].sort((a, b) => a.serialNumber - b.serialNumber);
+      });
+      return true;
     } catch (err) {
-      console.error('Failed to send message:', err);
-      const nextSerial =
-        messages.length > 0
-          ? Math.max(...messages.map((m) => m.serialNumber)) + 1
-          : 1;
-      const localMsg: ChatMessage = {
-        id: `msg-${Date.now()}`,
-        serialNumber: nextSerial,
-        text: text.trim(),
+      console.error('Failed to create post:', err);
+      // Fallback local post
+      const fallbackPost: SerialPost = {
+        id: `post-${Date.now()}`,
+        serialNumber: nextSerialNumber,
+        content,
+        tag,
         createdAt: Date.now(),
         authorToken,
+        likesCount: 0,
+        commentsCount: 0,
+        likedBy: [],
         reactions: {},
-        replyTo: replyTo || null,
       };
-      setMessages((prev) => [...prev, localMsg]);
-      setTimeout(() => scrollToBottom('smooth'), 50);
+      setPosts((prev) => [...prev, fallbackPost]);
+      return true;
     } finally {
-      setIsSending(false);
+      setIsPublishing(false);
     }
   };
 
-  // Add reaction handler
-  const handleReact = async (messageId: string, emoji: string) => {
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.id !== messageId) return m;
-        const currentCount = m.reactions?.[emoji] || 0;
+  // Toggle Like on a Post
+  const handleToggleLike = async (postId: string, currentLiked: boolean) => {
+    // Optimistic UI update
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const currentLikedBy = Array.isArray(p.likedBy) ? p.likedBy : [];
+        const nextLikedBy = currentLiked
+          ? currentLikedBy.filter((t) => t !== authorToken)
+          : [...currentLikedBy, authorToken];
+        const nextCount = currentLiked
+          ? Math.max(0, (p.likesCount || 1) - 1)
+          : (p.likesCount || 0) + 1;
+
         return {
-          ...m,
+          ...p,
+          likesCount: nextCount,
+          likedBy: nextLikedBy,
+        };
+      })
+    );
+
+    try {
+      await togglePostLike(postId, authorToken, currentLiked);
+    } catch (err) {
+      console.error('Like toggle failed:', err);
+    }
+  };
+
+  // Add Reaction on a Post
+  const handleAddReaction = async (postId: string, emoji: string) => {
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const currentCount = p.reactions?.[emoji] || 0;
+        return {
+          ...p,
           reactions: {
-            ...(m.reactions || {}),
+            ...(p.reactions || {}),
             [emoji]: currentCount + 1,
           },
         };
       })
     );
 
-    if (archivedMessageResult && archivedMessageResult.id === messageId) {
-      setArchivedMessageResult((prev) =>
-        prev
-          ? {
-              ...prev,
-              reactions: {
-                ...(prev.reactions || {}),
-                [emoji]: ((prev.reactions || {})[emoji] || 0) + 1,
-              },
-            }
-          : null
-      );
+    try {
+      await addPostReaction(postId, emoji);
+    } catch (err) {
+      console.error('Reaction failed:', err);
     }
-
-    await addMessageReaction(messageId, emoji);
   };
 
-  // Filter messages according to search query or serial number
-  const filteredMessages = useMemo(() => {
-    if (!searchQuery.trim()) return messages;
-    const query = searchQuery.toLowerCase().trim();
+  // Filter & Sort Posts
+  const displayedPosts = useMemo(() => {
+    let result = [...posts];
 
-    const isSerialSearch = query.startsWith('#')
-      ? parseInt(query.slice(1), 10)
-      : /^\d+$/.test(query)
-      ? parseInt(query, 10)
-      : null;
-
-    const matched = messages.filter((msg) => {
-      if (isSerialSearch !== null && !isNaN(isSerialSearch)) {
-        if (msg.serialNumber === isSerialSearch) return true;
-      }
-      return msg.text.toLowerCase().includes(query);
-    });
-
-    if (
-      archivedMessageResult &&
-      !matched.some((m) => m.id === archivedMessageResult.id)
-    ) {
-      return [archivedMessageResult, ...matched];
+    // 1. Tag filtering
+    if (selectedTagFilter !== 'All') {
+      result = result.filter((p) => p.tag === selectedTagFilter);
     }
 
-    return matched;
-  }, [messages, searchQuery, archivedMessageResult]);
+    // 2. Search query filtering
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const isSerialSearch = q.startsWith('#')
+        ? parseInt(q.slice(1), 10)
+        : /^\d+$/.test(q)
+        ? parseInt(q, 10)
+        : null;
 
-  const hasCompressedOlder = messages.length > 0 && messages[0].serialNumber > 1;
+      result = result.filter((p) => {
+        if (isSerialSearch !== null && !isNaN(isSerialSearch)) {
+          if (p.serialNumber === isSerialSearch) return true;
+        }
+        return p.content.toLowerCase().includes(q) || (p.tag && p.tag.toLowerCase().includes(q));
+      });
+
+      if (searchedSerialPost && !result.some((p) => p.id === searchedSerialPost.id)) {
+        result.unshift(searchedSerialPost);
+      }
+    }
+
+    // 3. Sorting strictly by continuous serial sequence (#1 -> #N)
+    result.sort((a, b) => a.serialNumber - b.serialNumber);
+
+    return result;
+  }, [posts, selectedTagFilter, searchQuery, searchedSerialPost]);
 
   return (
-    <div className="h-screen h-[100dvh] max-h-screen bg-white text-zinc-900 flex flex-col overflow-hidden selection:bg-zinc-200">
-      {/* Top Header - Fixed at Top */}
+    <div className="min-h-screen bg-zinc-100 text-zinc-900 flex flex-col selection:bg-zinc-200">
+      {/* Top Header */}
       <Header
         onlineCount={onlineCount}
-        totalMessages={messages.length > 0 ? Math.max(...messages.map((m) => m.serialNumber)) : 0}
-        soundEnabled={soundEnabled}
-        onToggleSound={handleToggleSound}
+        totalPosts={posts.length > 0 ? Math.max(...posts.map((p) => p.serialNumber)) : 0}
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenDownload={() => setIsDownloadOpen(true)}
         searchQuery={searchQuery}
@@ -344,165 +326,120 @@ export default function App() {
           setIsSearchOpen(!isSearchOpen);
           if (isSearchOpen) setSearchQuery('');
         }}
-        isConnected={isConnected}
-        onRefresh={() => scrollToBottom('smooth')}
       />
 
-      {/* Main Chat Stream Container - Scrollable Middle Area Fixed to Bottom */}
-      <main
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 w-full overflow-y-auto min-h-0 bg-white"
-      >
-        <div className="max-w-4xl w-full mx-auto px-4 py-4 min-h-full flex flex-col justify-end space-y-3">
-          {/* Stream Banner / Serial Introduction */}
-          <div className="text-center py-4 px-4 bg-zinc-50/80 rounded-2xl border border-zinc-100 my-1">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400 font-mono mb-0.5">
-              Official Serial Registry
-            </p>
-            <h2 className="text-sm font-medium text-zinc-700">
-              Messages are preserved in sequential serial order for everyone.
-            </h2>
-            <div className="flex items-center justify-center gap-3 mt-1.5 flex-wrap">
-              <span className="text-xs text-zinc-500">
-                Zero identity details • Real-time live feed
-              </span>
-              <button
-                onClick={() => setIsDownloadOpen(true)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-800 hover:text-black underline underline-offset-2"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download History / App
-              </button>
-            </div>
+      {/* Main Container */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 space-y-5">
+        {/* Create Post Dialog Modal */}
+        <CreatePostCard
+          onPublishPost={handlePublishPost}
+          nextSerialNumber={nextSerialNumber}
+          isPublishing={isPublishing}
+          isOpen={isCreateOpen}
+          onOpenChange={setIsCreateOpen}
+        />
+
+        {/* Searching Status */}
+        {isSearchingSerial && (
+          <div className="p-3 bg-zinc-200/60 rounded-xl text-center text-xs text-zinc-600 flex items-center justify-center gap-2">
+            <span className="w-3.5 h-3.5 border-2 border-zinc-500 border-t-transparent rounded-full animate-spin" />
+            <span>Looking up serial post #{searchQuery}...</span>
           </div>
+        )}
 
-          {/* Compression / Older Archive Banner */}
-          {hasCompressedOlder && !searchQuery && (
-            <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 border border-zinc-200/80 text-xs text-zinc-600 animate-fadeIn">
-              <div className="flex items-center gap-2">
-                <Archive className="w-4 h-4 text-zinc-500 shrink-0" />
-                <span>
-                  Messages <strong className="font-mono text-zinc-800">#001</strong> to{' '}
-                  <strong className="font-mono text-zinc-800">
-                    #{String(messages[0].serialNumber - 1).padStart(3, '0')}
-                  </strong>{' '}
-                  are archived.
-                </span>
-              </div>
+        {/* Posts Feed */}
+        {displayedPosts.length === 0 && !isSearchingSerial ? (
+          <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center text-zinc-400">
+            <MessageSquareOff className="w-10 h-10 mx-auto mb-3 opacity-40 text-zinc-400" />
+            <h3 className="text-base font-semibold text-zinc-700">No posts found</h3>
+            <p className="text-xs text-zinc-500 mt-1 max-w-sm mx-auto">
+              {searchQuery || selectedTagFilter !== 'All'
+                ? 'Try adjusting your search query or topic filter.'
+                : 'Be the first to publish post #1 on the board!'}
+            </p>
+            {(searchQuery || selectedTagFilter !== 'All') && (
               <button
-                onClick={handleLoadOlderCompressed}
-                disabled={isLoadingMoreArchive}
-                className="px-2.5 py-1 bg-white hover:bg-zinc-100 border border-zinc-200 rounded-lg font-medium text-zinc-800 flex items-center gap-1 transition-all shadow-2xs text-[11px]"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedTagFilter('All');
+                }}
+                className="mt-3 text-xs text-zinc-900 font-semibold underline underline-offset-2"
               >
-                {isLoadingMoreArchive ? (
-                  <>
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Loading...</span>
-                  </>
-                ) : (
-                  <span>Load Older</span>
-                )}
+                Reset filters
               </button>
-            </div>
-          )}
-
-          {/* Searching Archive indicator */}
-          {isSearchingArchive && (
-            <div className="p-3 bg-zinc-100 rounded-xl flex items-center justify-center gap-2 text-xs text-zinc-600">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Searching compressed archive for serial #{searchQuery}...</span>
-            </div>
-          )}
-
-          {/* Found in Archive Callout */}
-          {archivedMessageResult && (
-            <div className="p-2.5 bg-zinc-900 text-white rounded-xl flex items-center justify-between text-xs animate-fadeIn shadow-sm">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>
-                  Retrieved archived message{' '}
-                  <strong className="font-mono">
-                    #{String(archivedMessageResult.serialNumber).padStart(3, '0')}
-                  </strong>{' '}
-                  from database:
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Message Items List */}
-          {filteredMessages.length === 0 && !isSearchingArchive ? (
-            <div className="py-12 text-center text-zinc-400">
-              <MessageSquareOff className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm font-medium">
-                {searchQuery
-                  ? `No message found matching "${searchQuery}".`
-                  : 'No messages yet.'}
-              </p>
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="mt-2 text-xs text-zinc-900 underline font-medium"
-                >
-                  Clear search filter
-                </button>
-              )}
-            </div>
-          ) : (
-            filteredMessages.map((msg) => (
-              <MessageItem
-                key={msg.id}
-                message={msg}
-                isCurrentUser={Boolean(msg.authorToken && msg.authorToken === authorToken)}
-                onReply={(m) => setReplyingTo(m)}
-                onReact={handleReact}
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {displayedPosts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUserToken={authorToken}
+                onToggleLike={handleToggleLike}
+                onAddReaction={handleAddReaction}
+                soundEnabled={soundEnabled}
               />
-            ))
-          )}
-
-          {/* Auto Scroll Bottom Anchor */}
-          <div ref={messagesEndRef} className="h-1 shrink-0" />
-        </div>
+            ))}
+          </div>
+        )}
       </main>
 
-      {/* Floating "Scroll to Bottom" button */}
-      {isUserScrolledUp && (
+      {/* Footer info banner */}
+      <footer className="w-full border-t border-zinc-200 bg-white py-4 mt-8">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-zinc-500">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-zinc-800">Anonymous Serial Posts</span>
+            <span>•</span>
+            <span>All posts strictly ordered in continuous sequence</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsInfoOpen(true)}
+              className="hover:text-zinc-900 underline underline-offset-2"
+            >
+              How it works
+            </button>
+            <button
+              onClick={() => setIsDownloadOpen(true)}
+              className="hover:text-zinc-900 underline underline-offset-2 font-medium"
+            >
+              Export data
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* Floating '+' Action Button */}
+      {!isCreateOpen && (
         <button
-          onClick={() => scrollToBottom('smooth')}
-          className="fixed bottom-20 right-6 z-30 flex items-center gap-1.5 px-3.5 py-2 bg-zinc-900 text-white rounded-full text-xs font-medium shadow-xl hover:bg-black transition-all active:scale-95 animate-fadeIn border border-zinc-800"
+          id="btn-fab-new-post"
+          onClick={() => {
+            setIsCreateOpen(true);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          className="fixed bottom-6 right-6 z-30 bg-zinc-900 hover:bg-black text-white p-3.5 sm:px-4 sm:py-3 rounded-2xl shadow-lg hover:shadow-xl flex items-center gap-2 font-semibold text-sm transition-all duration-200 active:scale-95 group border border-zinc-700/50"
+          title="Create New Post"
+          aria-label="Create New Post"
         >
-          <ArrowDown className="w-3.5 h-3.5" />
-          <span>Latest</span>
-          {newMessagesWhileScrolled > 0 && (
-            <span className="ml-1 px-1.5 py-0.2 bg-emerald-500 text-white rounded-full text-[10px] font-bold">
-              +{newMessagesWhileScrolled}
-            </span>
-          )}
+          <Plus className="w-5 h-5 transition-transform group-hover:rotate-90" />
+          <span className="hidden sm:inline">New Post</span>
         </button>
       )}
-
-      {/* Sticky Bottom Message Input - Always Fixed at Bottom */}
-      <MessageInput
-        onSendMessage={handleSendMessage}
-        replyingTo={replyingTo}
-        onCancelReply={() => setReplyingTo(null)}
-        isSending={isSending}
-      />
 
       {/* Info Modal */}
       <InfoModal
         isOpen={isInfoOpen}
         onClose={() => setIsInfoOpen(false)}
-        totalMessages={messages.length}
+        totalPosts={posts.length}
       />
 
-      {/* Download & Export Modal */}
+      {/* Download / Export Modal */}
       <DownloadModal
         isOpen={isDownloadOpen}
         onClose={() => setIsDownloadOpen(false)}
-        messages={messages}
-        totalCount={messages.length}
+        posts={posts}
+        totalCount={posts.length}
       />
     </div>
   );

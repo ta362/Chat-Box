@@ -1,16 +1,16 @@
 import React from 'react';
-import { X, ShieldCheck, Hash, Radio, Users } from 'lucide-react';
+import { X, ShieldCheck, Hash, Heart, MessageSquare, Layers } from 'lucide-react';
 
 interface InfoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  totalMessages: number;
+  totalPosts: number;
 }
 
 export const InfoModal: React.FC<InfoModalProps> = ({
   isOpen,
   onClose,
-  totalMessages,
+  totalPosts,
 }) => {
   if (!isOpen) return null;
 
@@ -24,10 +24,10 @@ export const InfoModal: React.FC<InfoModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-zinc-900 text-white flex items-center justify-center">
-              <Radio className="w-4 h-4" />
+              <Layers className="w-4 h-4" />
             </div>
             <h3 className="font-semibold text-zinc-900 text-base">
-              About Anonymous Chat
+              Anonymous Serial Board
             </h3>
           </div>
           <button
@@ -42,42 +42,42 @@ export const InfoModal: React.FC<InfoModalProps> = ({
         <div className="p-5 space-y-4 text-sm text-zinc-600">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-zinc-100 text-zinc-900 shrink-0">
-              <ShieldCheck className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="font-medium text-zinc-900 mb-0.5">
-                100% Anonymous & Private
-              </h4>
-              <p className="text-xs text-zinc-500 leading-relaxed">
-                No accounts, emails, passwords, or personal identity required. Anyone can drop in, read, and write freely.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-zinc-100 text-zinc-900 shrink-0">
               <Hash className="w-4 h-4" />
             </div>
             <div>
               <h4 className="font-medium text-zinc-900 mb-0.5">
-                Sequential Serial Stream
+                Strict Serial Ordering (#1, #2, #3...)
               </h4>
               <p className="text-xs text-zinc-500 leading-relaxed">
-                Every message is numbered chronologically (#{totalMessages} recorded so far). Everyone who connects sees the exact same serial order.
+                Every post gets a permanent atomic sequence number (#{totalPosts} posts registered). All users see the exact same sequential index.
               </p>
             </div>
           </div>
 
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-zinc-100 text-zinc-900 shrink-0">
-              <Users className="w-4 h-4" />
+              <Heart className="w-4 h-4 text-rose-500" />
             </div>
             <div>
               <h4 className="font-medium text-zinc-900 mb-0.5">
-                Real-Time Global Synchronization
+                Likes & Comments on Every Post
               </h4>
               <p className="text-xs text-zinc-500 leading-relaxed">
-                Powered by live WebSockets. Messages appear instantaneously on all active devices.
+                Give likes to support great posts, join the discussion thread below any post, and react with custom emoji badges.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-zinc-100 text-zinc-900 shrink-0">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div>
+              <h4 className="font-medium text-zinc-900 mb-0.5">
+                100% Anonymous & Zero Sign-ups
+              </h4>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                No accounts, emails, or personal tracking. Freedom to express ideas openly and read what others are posting.
               </p>
             </div>
           </div>
@@ -89,10 +89,11 @@ export const InfoModal: React.FC<InfoModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 bg-zinc-900 hover:bg-black text-white text-xs font-medium rounded-xl transition-all shadow-xs"
           >
-            Got it, let's chat
+            Explore Posts
           </button>
         </div>
       </div>
     </div>
   );
 };
+

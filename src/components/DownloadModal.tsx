@@ -7,23 +7,22 @@ import {
   Smartphone,
   Copy,
   Check,
-  Share2,
   HardDriveDownload,
   ArrowRight,
 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import { SerialPost } from '../types';
 
 interface DownloadModalProps {
   isOpen: boolean;
   onClose: () => void;
-  messages: ChatMessage[];
+  posts: SerialPost[];
   totalCount: number;
 }
 
 export const DownloadModal: React.FC<DownloadModalProps> = ({
   isOpen,
   onClose,
-  messages,
+  posts,
   totalCount,
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
@@ -59,16 +58,15 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
   // 1. Generate text transcript
   const generateTextTranscript = () => {
-    const header = `========================================\nANONYMOUS LIVE CHAT - OFFICIAL SERIAL LOG\nDownloaded: ${new Date().toLocaleString()}\nTotal Serial Messages: ${messages.length}\n========================================\n\n`;
+    const header = `========================================\nANONYMOUS SERIAL POST BOARD - EXPORT LOG\nExported: ${new Date().toLocaleString()}\nTotal Sequential Posts: ${posts.length}\n========================================\n\n`;
 
-    const body = messages
-      .map((m) => {
-        const timeStr = new Date(m.createdAt).toLocaleString();
-        const serialStr = `#${String(m.serialNumber).padStart(3, '0')}`;
-        const replyInfo = m.replyTo
-          ? ` [Replying to #${String(m.replyTo.serialNumber).padStart(3, '0')}: "${m.replyTo.text.replace(/\n/g, ' ')}"]`
-          : '';
-        return `[${serialStr}] (${timeStr})${replyInfo}\n${m.text}\n`;
+    const body = posts
+      .map((p) => {
+        const timeStr = new Date(p.createdAt).toLocaleString();
+        const serialStr = `#${p.serialNumber}`;
+        const tagStr = p.tag ? ` [Tag: ${p.tag}]` : '';
+        const statsStr = ` (Likes: ${p.likesCount || 0}, Comments: ${p.commentsCount || 0})`;
+        return `[Post ${serialStr}]${tagStr} - ${timeStr}${statsStr}\n${p.content}\n`;
       })
       .join('\n----------------------------------------\n\n');
 
@@ -82,7 +80,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Anonymous-Chat-Log-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.download = `Anonymous-Serial-Posts-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -92,16 +90,18 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
   // 3. Download .json file
   const handleDownloadJson = () => {
     const dataToExport = {
-      app: 'Anonymous Live Chat',
+      app: 'Anonymous Serial Posts',
       exportDate: new Date().toISOString(),
-      totalMessages: messages.length,
-      messages: messages.map((m) => ({
-        serialNumber: m.serialNumber,
-        text: m.text,
-        createdAt: m.createdAt,
-        isoTime: new Date(m.createdAt).toISOString(),
-        replyTo: m.replyTo || null,
-        reactions: m.reactions || {},
+      totalPosts: posts.length,
+      posts: posts.map((p) => ({
+        serialNumber: p.serialNumber,
+        content: p.content,
+        tag: p.tag || null,
+        likesCount: p.likesCount,
+        commentsCount: p.commentsCount,
+        createdAt: p.createdAt,
+        isoTime: new Date(p.createdAt).toISOString(),
+        reactions: p.reactions || {},
       })),
     };
 
@@ -111,7 +111,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Anonymous-Chat-Backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `Anonymous-Serial-Posts-Backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -160,10 +160,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-semibold text-zinc-900">
-                Download & Export
+                Export & Download
               </h2>
               <p className="text-xs text-zinc-500 font-mono">
-                {messages.length} messages ready to export
+                {posts.length} serial posts ready to export
               </p>
             </div>
           </div>
@@ -181,7 +181,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
           {/* Section 1: Chat Data Downloads */}
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2 font-mono">
-              Chat History Downloads
+              Post Feed Downloads
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               {/* Text File */}
@@ -201,7 +201,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                     <HardDriveDownload className="w-3.5 h-3.5 text-zinc-400 group-hover:text-zinc-900 transition-colors" />
                   </div>
                   <p className="text-xs text-zinc-500 mt-0.5">
-                    Clean formatted serial transcripts.
+                    Clean sequential post transcript.
                   </p>
                 </div>
               </button>
@@ -261,10 +261,10 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
                 </div>
                 <div className="flex-1">
                   <h4 className="text-sm font-semibold text-white">
-                    Download App to Mobile / PC
+                    Add to Mobile Home Screen or PC
                   </h4>
                   <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                    Install Anonymous Chat directly on your home screen or desktop for 1-tap instant access without opening a browser.
+                    Install Anonymous Posts directly on your device for fast 1-tap access anytime.
                   </p>
                   
                   <button
@@ -283,7 +283,7 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-6 py-3.5 bg-zinc-50 border-t border-zinc-100 flex items-center justify-between text-xs text-zinc-500">
-          <span>Official Sequential Registry</span>
+          <span>Sequential Serial Feed</span>
           <button
             onClick={onClose}
             className="font-medium text-zinc-800 hover:underline"
@@ -295,3 +295,4 @@ export const DownloadModal: React.FC<DownloadModalProps> = ({
     </div>
   );
 };
+

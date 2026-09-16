@@ -3,26 +3,41 @@ export interface MessageReaction {
   count: number;
 }
 
-export interface ChatMessage {
+export interface PostComment {
   id: string;
-  serialNumber: number;
-  text: string;
+  postId: string;
+  content: string;
   createdAt: number;
-  // Optional anonymous client signature (hashed or tokenized so local client knows it's theirs)
-  authorToken?: string;
-  reactions?: Record<string, number>;
-  replyTo?: {
-    serialNumber: number;
-    text: string;
-  } | null;
+  authorToken: string;
+  likesCount?: number;
+  likedBy?: string[];
 }
 
+export interface SerialPost {
+  id: string;
+  serialNumber: number;
+  content: string;
+  createdAt: number;
+  authorToken: string;
+  likesCount: number;
+  commentsCount: number;
+  likedBy?: string[];
+  reactions?: Record<string, number>;
+  tag?: string;
+}
+
+// Backward compatibility alias for any older references
+export type ChatMessage = SerialPost;
+
+export type PostSortOption = 'serial-asc' | 'serial-desc' | 'popular' | 'latest';
+
 export interface ServerStats {
-  totalMessages: number;
+  totalPosts: number;
   onlineCount: number;
 }
 
 export interface WsMessageEvent {
-  type: 'init' | 'message:created' | 'message:reaction' | 'presence:update' | 'pong';
+  type: 'init' | 'post:created' | 'post:liked' | 'comment:created' | 'presence:update' | 'pong';
   payload?: any;
 }
+

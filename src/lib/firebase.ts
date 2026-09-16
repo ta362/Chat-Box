@@ -10,30 +10,32 @@ import {
   updateDoc,
   doc,
   increment,
+  arrayUnion,
+  arrayRemove,
   limit,
   limitToLast,
   getDocs,
   runTransaction,
   Timestamp,
 } from 'firebase/firestore';
-import { ChatMessage } from '../types';
+import { SerialPost, PostComment } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
 
-const MESSAGES_COLLECTION = 'messages';
-const META_DOC_ID = 'chat_meta';
+const POSTS_COLLECTION = 'posts';
+const META_DOC_ID = 'post_serial_meta';
 
 /**
- * Subscribe to real-time chat messages from Firestore (active stream of latest 1000 messages)
+ * Subscribe to real-time posts from Firestore (ordered strictly by serialNumber)
  */
-export function subscribeToMessages(
-  onUpdate: (messages: ChatMessage[]) => void,
+export function subscribeToPosts(
+  onUpdate: (posts: SerialPost[]) => void,
   onError?: (err: Error) => void
 ) {
   const q = query(
-    collection(db, MESSAGES_COLLECTION),
+    collection(db, POSTS_COLLECTION),
     orderBy('serialNumber', 'asc'),
     limitToLast(1000)
   );
@@ -41,44 +43,47 @@ export function subscribeToMessages(
   return onSnapshot(
     q,
     (snapshot) => {
-      const msgs: ChatMessage[] = [];
+      const posts: SerialPost[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        msgs.push({
+        posts.push({
           id: docSnap.id,
           serialNumber: Number(data.serialNumber) || 1,
-          text: data.text || '',
+          content: data.content || data.text || '',
           createdAt:
             data.createdAt instanceof Timestamp
               ? data.createdAt.toMillis()
               : typeof data.createdAt === 'number'
               ? data.createdAt
               : Date.now(),
-          authorToken: data.authorToken,
+          authorToken: data.authorToken || 'anon',
+          likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
+          commentsCount: typeof data.commentsCount === 'number' ? data.commentsCount : 0,
+          likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
           reactions: data.reactions || {},
-          replyTo: data.replyTo || null,
+          tag: data.tag || undefined,
         });
       });
       // Sort strictly by continuous serialNumber ascending
-      msgs.sort((a, b) => a.serialNumber - b.serialNumber);
-      onUpdate(msgs);
+      posts.sort((a, b) => a.serialNumber - b.serialNumber);
+      onUpdate(posts);
     },
     (err) => {
-      console.error('Firestore real-time subscription error:', err);
+      console.error('Firestore posts real-time subscription error:', err);
       if (onError) onError(err);
     }
   );
 }
 
 /**
- * Fetch a specific chat message by its serial number
+ * Fetch a specific post by its serial number
  */
-export async function fetchMessageBySerial(
+export async function fetchPostBySerial(
   serialNumber: number
-): Promise<ChatMessage | null> {
+): Promise<SerialPost | null> {
   try {
     const q = query(
-      collection(db, MESSAGES_COLLECTION),
+      collection(db, POSTS_COLLECTION),
       where('serialNumber', '==', serialNumber),
       limit(1)
     );
@@ -88,81 +93,44 @@ export async function fetchMessageBySerial(
       const data = docSnap.data();
       return {
         id: docSnap.id,
-        serialNumber: data.serialNumber || serialNumber,
-        text: data.text || '',
+        serialNumber: Number(data.serialNumber) || serialNumber,
+        content: data.content || data.text || '',
         createdAt:
           data.createdAt instanceof Timestamp
             ? data.createdAt.toMillis()
             : typeof data.createdAt === 'number'
             ? data.createdAt
             : Date.now(),
-        authorToken: data.authorToken,
+        authorToken: data.authorToken || 'anon',
+        likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
+        commentsCount: typeof data.commentsCount === 'number' ? data.commentsCount : 0,
+        likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
         reactions: data.reactions || {},
-        replyTo: data.replyTo || null,
+        tag: data.tag || undefined,
       };
     }
     return null;
   } catch (err) {
-    console.error(`Error querying serial message #${serialNumber}:`, err);
+    console.error(`Error querying serial post #${serialNumber}:`, err);
     return null;
   }
 }
 
 /**
- * Fetch older compressed messages before a specific serial number
+ * Create a new Post with strictly sequential atomic serial numbers (#1, #2, #3, #4...)
  */
-export async function fetchOlderArchivedMessages(
-  beforeSerial: number,
-  count: number = 50
-): Promise<ChatMessage[]> {
-  try {
-    const q = query(
-      collection(db, MESSAGES_COLLECTION),
-      where('serialNumber', '<', beforeSerial),
-      orderBy('serialNumber', 'desc'),
-      limit(count)
-    );
-    const snap = await getDocs(q);
-    const msgs: ChatMessage[] = [];
-    snap.forEach((docSnap) => {
-      const data = docSnap.data();
-      msgs.push({
-        id: docSnap.id,
-        serialNumber: data.serialNumber || 1,
-        text: data.text || '',
-        createdAt:
-          data.createdAt instanceof Timestamp
-            ? data.createdAt.toMillis()
-            : typeof data.createdAt === 'number'
-            ? data.createdAt
-            : Date.now(),
-        authorToken: data.authorToken,
-        reactions: data.reactions || {},
-        replyTo: data.replyTo || null,
-      });
-    });
-    return msgs.sort((a, b) => a.serialNumber - b.serialNumber);
-  } catch (err) {
-    console.error('Error fetching older archived messages:', err);
-    return [];
-  }
-}
-
-/**
- * Send an anonymous message with strictly sequential serial numbers (#1, #2, #3, #4...)
- */
-export async function sendChatMessage(
-  text: string,
+export async function createSerialPost(
+  content: string,
   authorToken: string,
-  replyTo?: { serialNumber: number; text: string } | null
-): Promise<ChatMessage> {
-  const trimmed = text.trim();
+  tag?: string
+): Promise<SerialPost> {
+  const trimmed = content.trim();
   const counterRef = doc(db, 'meta', META_DOC_ID);
 
   let nextSerial = 1;
 
   try {
-    // 1. Try atomic transaction to ensure consecutive serial numbers across all users
+    // Atomic transaction ensures continuous serial sequence across all concurrent users
     nextSerial = await runTransaction(db, async (transaction) => {
       const metaDoc = await transaction.get(counterRef);
       let currentSerial = 0;
@@ -170,9 +138,9 @@ export async function sendChatMessage(
       if (metaDoc.exists() && typeof metaDoc.data().lastSerialNumber === 'number') {
         currentSerial = metaDoc.data().lastSerialNumber;
       } else {
-        // Find existing maximum serial if meta doc not yet initialized
+        // Look up highest existing serial if meta not yet saved
         const highestSerialQuery = query(
-          collection(db, MESSAGES_COLLECTION),
+          collection(db, POSTS_COLLECTION),
           orderBy('serialNumber', 'desc'),
           limit(1)
         );
@@ -183,15 +151,18 @@ export async function sendChatMessage(
       }
 
       const assignedSerial = currentSerial + 1;
-      transaction.set(counterRef, { lastSerialNumber: assignedSerial, updatedAt: Date.now() }, { merge: true });
+      transaction.set(
+        counterRef,
+        { lastSerialNumber: assignedSerial, updatedAt: Date.now() },
+        { merge: true }
+      );
       return assignedSerial;
     });
   } catch (err) {
     console.warn('Transaction serial assignment fallback:', err);
-    // Fallback: fetch highest serial number directly
     try {
       const highestSerialQuery = query(
-        collection(db, MESSAGES_COLLECTION),
+        collection(db, POSTS_COLLECTION),
         orderBy('serialNumber', 'desc'),
         limit(1)
       );
@@ -207,33 +178,182 @@ export async function sendChatMessage(
     }
   }
 
-  const newMsgData = {
+  const newPostData = {
     serialNumber: nextSerial,
-    text: trimmed,
+    content: trimmed,
     createdAt: Date.now(),
     authorToken,
+    likesCount: 0,
+    commentsCount: 0,
+    likedBy: [],
     reactions: {},
-    replyTo: replyTo || null,
+    tag: tag || null,
   };
 
-  const docRef = await addDoc(collection(db, MESSAGES_COLLECTION), newMsgData);
+  const docRef = await addDoc(collection(db, POSTS_COLLECTION), newPostData);
 
   return {
     id: docRef.id,
-    ...newMsgData,
+    ...newPostData,
+    tag: tag || undefined,
   };
 }
 
 /**
- * Add reaction to a message in Firestore
+ * Toggle like for a post (atomic update with user token tracking)
  */
-export async function addMessageReaction(messageId: string, emoji: string) {
+export async function togglePostLike(
+  postId: string,
+  authorToken: string,
+  isCurrentlyLiked: boolean
+) {
   try {
-    const msgRef = doc(db, MESSAGES_COLLECTION, messageId);
-    await updateDoc(msgRef, {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    if (isCurrentlyLiked) {
+      await updateDoc(postRef, {
+        likedBy: arrayRemove(authorToken),
+        likesCount: increment(-1),
+      });
+    } else {
+      await updateDoc(postRef, {
+        likedBy: arrayUnion(authorToken),
+        likesCount: increment(1),
+      });
+    }
+  } catch (err) {
+    console.error('Failed to toggle post like:', err);
+  }
+}
+
+/**
+ * Add emoji reaction to a post
+ */
+export async function addPostReaction(postId: string, emoji: string) {
+  try {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    await updateDoc(postRef, {
       [`reactions.${emoji}`]: increment(1),
     });
   } catch (err) {
     console.error('Failed to update reaction in Firestore:', err);
   }
 }
+
+/**
+ * Subscribe in real-time to comments for a specific post
+ */
+export function subscribeToPostComments(
+  postId: string,
+  onUpdate: (comments: PostComment[]) => void,
+  onError?: (err: Error) => void
+) {
+  const q = query(
+    collection(db, POSTS_COLLECTION, postId, 'comments'),
+    orderBy('createdAt', 'asc'),
+    limit(200)
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const comments: PostComment[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        comments.push({
+          id: docSnap.id,
+          postId,
+          content: data.content || '',
+          createdAt:
+            data.createdAt instanceof Timestamp
+              ? data.createdAt.toMillis()
+              : typeof data.createdAt === 'number'
+              ? data.createdAt
+              : Date.now(),
+          authorToken: data.authorToken || 'anon',
+          likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
+          likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
+        });
+      });
+      onUpdate(comments);
+    },
+    (err) => {
+      console.error(`Comments subscription error for post ${postId}:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+/**
+ * Add a comment to a post and atomically update post comment count
+ */
+export async function addPostComment(
+  postId: string,
+  content: string,
+  authorToken: string
+): Promise<PostComment> {
+  const trimmed = content.trim();
+  const commentsColRef = collection(db, POSTS_COLLECTION, postId, 'comments');
+  const postRef = doc(db, POSTS_COLLECTION, postId);
+
+  const newCommentData = {
+    postId,
+    content: trimmed,
+    createdAt: Date.now(),
+    authorToken,
+    likesCount: 0,
+    likedBy: [],
+  };
+
+  const docRef = await addDoc(commentsColRef, newCommentData);
+
+  // Increment comments count on post
+  try {
+    await updateDoc(postRef, {
+      commentsCount: increment(1),
+    });
+  } catch (err) {
+    console.warn('Could not increment post commentsCount:', err);
+  }
+
+  return {
+    id: docRef.id,
+    ...newCommentData,
+  };
+}
+
+/**
+ * Toggle like for a comment
+ */
+export async function toggleCommentLike(
+  postId: string,
+  commentId: string,
+  authorToken: string,
+  isCurrentlyLiked: boolean
+) {
+  try {
+    const commentRef = doc(db, POSTS_COLLECTION, postId, 'comments', commentId);
+    if (isCurrentlyLiked) {
+      await updateDoc(commentRef, {
+        likedBy: arrayRemove(authorToken),
+        likesCount: increment(-1),
+      });
+    } else {
+      await updateDoc(commentRef, {
+        likedBy: arrayUnion(authorToken),
+        likesCount: increment(1),
+      });
+    }
+  } catch (err) {
+    console.error('Failed to toggle comment like:', err);
+  }
+}
+
+// Backward-compatibility exports
+export const subscribeToMessages = subscribeToPosts;
+export const sendChatMessage = async (text: string, authorToken: string) => {
+  return createSerialPost(text, authorToken);
+};
+export const addMessageReaction = addPostReaction;
+export const fetchOlderArchivedMessages = async () => [];
+export const fetchMessageBySerial = fetchPostBySerial;
+
