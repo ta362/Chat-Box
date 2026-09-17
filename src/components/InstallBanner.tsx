@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Monitor, Smartphone, X, Sparkles } from 'lucide-react';
+import { Download, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export const InstallBanner: React.FC = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
@@ -66,47 +67,53 @@ export const InstallBanner: React.FC = () => {
     sessionStorage.setItem('anon_install_banner_dismissed', 'true');
   };
 
-  if (!isVisible) return null;
-
   return (
-    <div
-      id="top-browser-install-banner"
-      className="bg-zinc-900 text-white px-3 sm:px-4 py-2.5 border-b border-zinc-800 transition-all shadow-sm relative z-40 animate-in slide-in-from-top duration-200"
-    >
-      <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
-            <Download className="w-3.5 h-3.5" />
-          </div>
-          <div className="text-xs truncate">
-            <span className="font-semibold text-zinc-100">
-              Install App on your PC / Mobile
-            </span>
-            <span className="hidden sm:inline text-zinc-400 ml-1.5">
-              • Run directly in full-screen with offline support
-            </span>
-          </div>
-        </div>
+    <AnimatePresence>
+      {isVisible && (
+        <motion.div
+          id="top-browser-install-banner"
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          className="bg-zinc-900 text-white px-3 sm:px-4 py-2.5 border-b border-zinc-800 shadow-sm relative z-40"
+        >
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <Download className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-xs truncate">
+                <span className="font-semibold text-zinc-100">
+                  Install App on your PC / Mobile
+                </span>
+                <span className="hidden sm:inline text-zinc-400 ml-1.5">
+                  • Run directly in full-screen with offline support
+                </span>
+              </div>
+            </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            id="btn-banner-install"
-            onClick={handleInstallClick}
-            className="px-3 py-1 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-lg shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
-          >
-            <Download className="w-3 h-3 text-zinc-950" />
-            <span>Install</span>
-          </button>
-          <button
-            id="btn-banner-dismiss"
-            onClick={handleDismiss}
-            className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
-            title="Dismiss"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                id="btn-banner-install"
+                onClick={handleInstallClick}
+                className="px-3 py-1 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-lg shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3 h-3 text-zinc-950" />
+                <span>Install</span>
+              </button>
+              <button
+                id="btn-banner-dismiss"
+                onClick={handleDismiss}
+                className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
+                title="Dismiss"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
