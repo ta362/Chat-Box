@@ -79,27 +79,22 @@ export const InstallBanner: React.FC = () => {
           className="fixed top-0 left-0 right-0 bg-zinc-900 text-white px-3 sm:px-4 py-3 border-b border-zinc-800 shadow-xl z-[100]"
         >
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
-                <Download className="w-4 h-4" />
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <Download className="w-3.5 h-3.5" />
               </div>
-              <div className="text-xs truncate">
-                <span className="font-semibold text-zinc-100 block sm:inline text-sm sm:text-xs">
-                  Install App on your PC / Mobile
-                </span>
-                <span className="hidden sm:inline text-zinc-400 ml-1.5">
-                  • Run directly in full-screen with offline support
-                </span>
-              </div>
+              <span className="font-semibold text-zinc-100 text-xs">
+                Install App
+              </span>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               <motion.button
                 id="btn-banner-install"
                 onClick={handleInstallClick}
-                animate={{ y: [0, -4, 0] }}
+                animate={{ y: [0, -3, 0] }}
                 transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
-                className="px-3.5 py-1.5 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-lg shadow-md transition-colors active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 text-xs font-bold rounded-md shadow-md transition-colors active:scale-95 flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-zinc-950" />
                 <span>Install</span>
@@ -107,7 +102,7 @@ export const InstallBanner: React.FC = () => {
               <button
                 id="btn-banner-dismiss"
                 onClick={handleDismiss}
-                className="p-1.5 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
+                className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
                 title="Dismiss"
               >
                 <X className="w-4 h-4" />

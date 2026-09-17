@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+
 import {
   initializeFirestore,
   getFirestore,
@@ -25,6 +26,7 @@ import { SerialPost, PostComment } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
 
 // Initialize Firestore with auto-detect long polling to prevent backend 10s connection timeouts in iframe sandboxes
 export const db = (function() {
@@ -209,11 +211,13 @@ export async function createSerialPost(
     content: trimmed,
     createdAt: overrideTimestamp || Date.now(),
     authorToken,
+    
     likesCount: 0,
     targetLikes,
     commentsCount: 0,
     targetComments,
     likedBy: [],
+    
     reactions: {},
     tag: tag || null,
   };
@@ -258,25 +262,6 @@ export async function deleteSerialPost(
   try {
     const postRef = doc(db, POSTS_COLLECTION, postId);
     await deleteDoc(postRef);
-
-    // Re-index all remaining posts in Firestore so serial numbers stay strictly continuous (#1, #2, #3...)
-    try {
-      const remainingSnap = await getDocs(
-        query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
-      );
-      const batch = writeBatch(db);
-      let count = 0;
-      remainingSnap.forEach((docSnap) => {
-        count++;
-        batch.update(docSnap.ref, { serialNumber: count });
-      });
-      // Update meta document with updated lastSerialNumber
-      const metaRef = doc(db, 'meta', META_DOC_ID);
-      batch.set(metaRef, { lastSerialNumber: count, updatedAt: Date.now() }, { merge: true });
-      await batch.commit();
-    } catch (reindexErr) {
-      console.warn('Re-indexing notice after post deletion:', reindexErr);
-    }
 
     return { success: true };
   } catch (err: any) {
@@ -334,73 +319,14 @@ export async function updateSerialPost(
  * Utility to delete all posts containing Bengali characters (\u0980-\u09FF) and re-index remaining posts
  */
 export async function deleteBengaliPosts() {
-  try {
-    const snap = await getDocs(collection(db, POSTS_COLLECTION));
-    if (!snap.empty) {
-      const bengaliRegex = /[\u0980-\u09FF]/;
-      const batch = writeBatch(db);
-      let deletedCount = 0;
-      snap.docs.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.content && bengaliRegex.test(data.content)) {
-          batch.delete(docSnap.ref);
-          deletedCount++;
-        }
-      });
-
-      if (deletedCount > 0) {
-        await batch.commit();
-
-        // Re-index remaining posts
-        const remainingSnap = await getDocs(
-          query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
-        );
-        const reindexBatch = writeBatch(db);
-        let count = 0;
-        remainingSnap.forEach((docSnap) => {
-          count++;
-          reindexBatch.update(docSnap.ref, { serialNumber: count });
-        });
-        await reindexBatch.commit();
-      }
-    }
-  } catch (err) {
-    console.warn('deleteBengaliPosts notice:', err);
-  }
+  console.warn('Mass deletion disabled for security.');
 }
 
 /**
  * Utility to delete posts by specific serial numbers and re-index remaining posts
  */
 export async function deletePostsBySerials(serialNumbers: number[]) {
-  try {
-    const q = query(
-      collection(db, POSTS_COLLECTION),
-      where('serialNumber', 'in', serialNumbers)
-    );
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      const batch = writeBatch(db);
-      snap.docs.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-      await batch.commit();
-
-      // Re-index remaining posts
-      const remainingSnap = await getDocs(
-        query(collection(db, POSTS_COLLECTION), orderBy('createdAt', 'asc'))
-      );
-      const reindexBatch = writeBatch(db);
-      let count = 0;
-      remainingSnap.forEach((docSnap) => {
-        count++;
-        reindexBatch.update(docSnap.ref, { serialNumber: count });
-      });
-      await reindexBatch.commit();
-    }
-  } catch (err) {
-    console.warn('deletePostsBySerials notice:', err);
-  }
+  console.warn('Mass deletion disabled for security.');
 }
 
 /**
@@ -412,15 +338,18 @@ export async function togglePostLike(
   isCurrentlyLiked: boolean
 ) {
   try {
+    
     const postRef = doc(db, POSTS_COLLECTION, postId);
     if (isCurrentlyLiked) {
       await updateDoc(postRef, {
         likedBy: arrayRemove(authorToken),
+        
         likesCount: increment(-1),
       });
     } else {
       await updateDoc(postRef, {
         likedBy: arrayUnion(authorToken),
+        
         likesCount: increment(1),
       });
     }
@@ -504,8 +433,10 @@ export async function addPostComment(
     content: trimmed,
     createdAt: Date.now(),
     authorToken,
+    
     likesCount: 0,
     likedBy: [],
+    
   };
 
   const docRef = await addDoc(commentsColRef, newCommentData);
@@ -595,15 +526,18 @@ export async function toggleCommentLike(
   isCurrentlyLiked: boolean
 ) {
   try {
+    
     const commentRef = doc(db, POSTS_COLLECTION, postId, 'comments', commentId);
     if (isCurrentlyLiked) {
       await updateDoc(commentRef, {
         likedBy: arrayRemove(authorToken),
+        
         likesCount: increment(-1),
       });
     } else {
       await updateDoc(commentRef, {
         likedBy: arrayUnion(authorToken),
+        
         likesCount: increment(1),
       });
     }

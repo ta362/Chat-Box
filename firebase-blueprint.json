@@ -1,23 +1,61 @@
 {
   "entities": {
-    "messages": {
-      "title": "Messages",
-      "description": "Anonymous public serial chat messages stream",
+    "Post": {
+      "title": "Post",
+      "description": "Anonymous serial post document",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
         "serialNumber": { "type": "number" },
-        "text": { "type": "string" },
+        "content": { "type": "string", "maxLength": 5000 },
         "createdAt": { "type": "number" },
         "authorToken": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "targetLikes": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "targetComments": { "type": "number" },
+        "likedBy": { "type": "array" },
         "reactions": { "type": "object" },
-        "replyTo": { "type": "object" }
+        "tag": { "type": "string" }
       },
-      "required": ["serialNumber", "text", "createdAt"]
+      "required": ["serialNumber", "content", "createdAt", "authorToken"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comment on an anonymous post",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "content": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "number" },
+        "authorToken": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "likedBy": { "type": "array" }
+      },
+      "required": ["postId", "content", "createdAt", "authorToken"]
+    },
+    "Meta": {
+      "title": "Meta",
+      "description": "Atomic serial counter metadata",
+      "type": "object",
+      "properties": {
+        "lastSerialNumber": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["lastSerialNumber"]
     }
   },
-  "firestoreRules": {
-    "version": "2",
-    "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /messages/{messageId} {\n      allow read: if true;\n      allow create: if request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;\n      allow update: if true;\n      allow delete: if false;\n    }\n    match /meta/{metaId} {\n      allow read, write: if true;\n    }\n  }\n}"
+  "firestore": {
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Collection of anonymous posts"
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Subcollection of comments on a post"
+    },
+    "/meta/{metaId}": {
+      "schema": "Meta",
+      "description": "Metadata for atomic serial numbering"
+    }
   }
 }
