@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
+  initializeFirestore,
   getFirestore,
   collection,
   query,
@@ -24,7 +25,19 @@ import { SerialPost, PostComment } from '../types';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
+
+// Initialize Firestore with auto-detect long polling to prevent backend 10s connection timeouts in iframe sandboxes
+export const db = (function() {
+  try {
+    return initializeFirestore(
+      app,
+      { experimentalAutoDetectLongPolling: true },
+      firebaseConfig.firestoreDatabaseId || undefined
+    );
+  } catch (e) {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
+  }
+})();
 
 const POSTS_COLLECTION = 'posts';
 const META_DOC_ID = 'post_serial_meta';
@@ -276,6 +289,48 @@ export async function deleteSerialPost(
 }
 
 /**
+ * Update an existing post if author matches and created within 30 minutes window
+ */
+export async function updateSerialPost(
+  postId: string,
+  newContent: string,
+  authorToken: string,
+  postAuthorToken: string,
+  createdAt: number
+): Promise<{ success: boolean; message?: string }> {
+  if (authorToken !== postAuthorToken) {
+    return {
+      success: false,
+      message: 'You can only edit your own posts.',
+    };
+  }
+
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const elapsed = Date.now() - createdAt;
+
+  if (elapsed > THIRTY_MINUTES_MS) {
+    return {
+      success: false,
+      message: '30 minutes have passed! This post has become permanent and can no longer be edited.',
+    };
+  }
+
+  try {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    await updateDoc(postRef, {
+      content: newContent.trim(),
+    });
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to update post:', err);
+    return {
+      success: false,
+      message: err?.message || 'Failed to update post.',
+    };
+  }
+}
+
+/**
  * Utility to delete all posts containing Bengali characters (\u0980-\u09FF) and re-index remaining posts
  */
 export async function deleteBengaliPosts() {
@@ -468,6 +523,66 @@ export async function addPostComment(
     id: docRef.id,
     ...newCommentData,
   };
+}
+
+export async function updateComment(
+  postId: string,
+  commentId: string,
+  newContent: string,
+  authorToken: string,
+  commentAuthorToken: string,
+  createdAt: number
+): Promise<{ success: boolean; message?: string }> {
+  if (authorToken !== commentAuthorToken) {
+    return { success: false, message: 'You can only edit your own comments.' };
+  }
+
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const elapsed = Date.now() - createdAt;
+  if (elapsed > THIRTY_MINUTES_MS) {
+    return {
+      success: false,
+      message: '30 minutes have passed! This comment can no longer be edited.',
+    };
+  }
+
+  try {
+    const commentRef = doc(db, POSTS_COLLECTION, postId, 'comments', commentId);
+    await updateDoc(commentRef, {
+      content: newContent.trim(),
+    });
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to update comment:', err);
+    return { success: false, message: err?.message || 'Failed to update comment.' };
+  }
+}
+
+export async function deleteComment(
+  postId: string,
+  commentId: string,
+  authorToken: string,
+  commentAuthorToken: string
+): Promise<{ success: boolean; message?: string }> {
+  if (authorToken !== commentAuthorToken) {
+    return { success: false, message: 'You can only delete your own comments.' };
+  }
+
+  try {
+    const commentRef = doc(db, POSTS_COLLECTION, postId, 'comments', commentId);
+    await deleteDoc(commentRef);
+
+    // Decrement comments count on post
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    await updateDoc(postRef, {
+      commentsCount: increment(-1),
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Failed to delete comment:', err);
+    return { success: false, message: err?.message || 'Failed to delete comment.' };
+  }
 }
 
 /**

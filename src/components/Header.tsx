@@ -12,15 +12,7 @@ interface HeaderProps {
   onToggleSearch: () => void;
 }
 
-const formatOnlineCount = (count: number) => {
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}k`;
-  }
-  return count.toString();
-};
-
 export const Header: React.FC<HeaderProps> = ({
-  onlineCount,
   totalPosts,
   onOpenInfo,
   searchQuery,
@@ -63,13 +55,12 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold text-zinc-900 tracking-tight">
+              <h1 className="text-base font-semibold text-zinc-900 tracking-tight flex items-center gap-1.5">
                 Anonymous Posts
+                <svg className="w-4 h-4 shrink-0 text-[#1a73e8]" viewBox="0 0 24 24" fill="currentColor" title="Google Verified">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-4-4 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z"/>
+                </svg>
               </h1>
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/60 leading-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span>{formatOnlineCount(onlineCount)} online</span>
-              </span>
             </div>
           </div>
         </div>

@@ -24,6 +24,8 @@ import {
   fetchPostBySerial,
   deletePostsBySerials,
   deleteBengaliPosts,
+  updateSerialPost,
+  deleteSerialPost,
 } from './lib/firebase';
 import {
   Sparkles,
@@ -343,6 +345,43 @@ export default function App() {
     }
   };
 
+  // Edit a post within 30 min
+  const handleEditPost = async (
+    postId: string,
+    newContent: string,
+    postAuthorToken: string,
+    createdAt: number
+  ): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await updateSerialPost(postId, newContent, authorToken, postAuthorToken, createdAt);
+      if (res.success) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id === postId ? { ...p, content: newContent.trim() } : p))
+        );
+      }
+      return res;
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to edit post.' };
+    }
+  };
+
+  // Delete a post within 30 min
+  const handleDeletePost = async (
+    postId: string,
+    postAuthorToken: string,
+    createdAt: number
+  ): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await deleteSerialPost(postId, authorToken, postAuthorToken, createdAt);
+      if (res.success) {
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+      }
+      return res;
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Failed to delete post.' };
+    }
+  };
+
   // Filter & Sort Posts
   const displayedPosts = useMemo(() => {
     let result = [...posts];
@@ -386,7 +425,6 @@ export default function App() {
 
       {/* Top Header */}
       <Header
-        onlineCount={onlineCount}
         totalPosts={posts.length > 0 ? Math.max(...posts.map((p) => p.serialNumber)) : 0}
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenDownload={() => setIsDownloadOpen(true)}
@@ -450,6 +488,8 @@ export default function App() {
                 currentUserToken={authorToken}
                 onToggleLike={handleToggleLike}
                 onAddReaction={handleAddReaction}
+                onEditPost={handleEditPost}
+                onDeletePost={handleDeletePost}
                 soundEnabled={soundEnabled}
               />
             ))}

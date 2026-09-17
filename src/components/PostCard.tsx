@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Heart,
   MessageSquare,
@@ -9,6 +9,9 @@ import {
   Tag as TagIcon,
   ChevronDown,
   ChevronUp,
+  Edit3,
+  Trash2,
+  Lock,
 } from 'lucide-react';
 import { SerialPost, PostComment } from '../types';
 import { CommentItem } from './CommentItem';
@@ -16,6 +19,8 @@ import {
   subscribeToPostComments,
   addPostComment,
   toggleCommentLike,
+  updateComment,
+  deleteComment,
 } from '../lib/firebase';
 import { generateRealisticCommentsForPost } from '../lib/commentsEngine';
 import { soundPlayer } from '../lib/audio';
@@ -25,6 +30,8 @@ interface PostCardProps {
   currentUserToken: string;
   onToggleLike: (postId: string, currentLiked: boolean) => void;
   onAddReaction: (postId: string, emoji: string) => void;
+  onEditPost: (postId: string, newContent: string, postAuthorToken: string, createdAt: number) => Promise<{ success: boolean; message?: string }>;
+  onDeletePost: (postId: string, postAuthorToken: string, createdAt: number) => Promise<{ success: boolean; message?: string }>;
   soundEnabled: boolean;
 }
 
@@ -45,6 +52,8 @@ export const PostCard: React.FC<PostCardProps> = ({
   currentUserToken,
   onToggleLike,
   onAddReaction,
+  onEditPost,
+  onDeletePost,
   soundEnabled,
 }) => {
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
@@ -52,11 +61,40 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [newCommentText, setNewCommentText] = useState('');
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
   const [copied, setCopied] = useState(false);
+  const commentInputRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(post.content);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const isAuthor = post.authorToken === currentUserToken;
   const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(currentUserToken);
   const likesCount = typeof post.likesCount === 'number' ? post.likesCount : (post.likedBy?.length || 0);
   const commentsCount = Math.max(post.commentsCount || 0, comments.length);
+
+  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+  const elapsed = Date.now() - post.createdAt;
+  const isEditable = isAuthor && elapsed <= THIRTY_MINUTES_MS;
+  const remainingMinutes = Math.max(0, Math.ceil((THIRTY_MINUTES_MS - elapsed) / (1000 * 60)));
+
+  // Close comment drawer when clicking outside the post card
+  useEffect(() => {
+    if (!isCommentsOpen) return;
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (cardRef.current && !cardRef.current.contains(event.target as Node)) {
+        setIsCommentsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isCommentsOpen]);
 
   // Subscribe to comments when comment section is opened
   useEffect(() => {
@@ -73,7 +111,13 @@ export const PostCard: React.FC<PostCardProps> = ({
   }, [isCommentsOpen, post.id, post.commentsCount]);
 
   const handleToggleComments = () => {
-    setIsCommentsOpen((prev) => !prev);
+    setIsCommentsOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => commentInputRef.current?.focus(), 150);
+      }
+      return next;
+    });
   };
 
   const handleLike = () => {
@@ -108,11 +152,58 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
   };
 
-  const handleCopyLink = () => {
-    const textToCopy = `Anonymous Post #${post.serialNumber}: "${post.content.substring(0, 100)}..."\n${window.location.origin}`;
-    navigator.clipboard.writeText(textToCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleSaveEdit = async () => {
+    if (!editContent.trim() || isSavingEdit) return;
+    setIsSavingEdit(true);
+    setEditError('');
+    try {
+      const res = await onEditPost(post.id, editContent, post.authorToken, post.createdAt);
+      if (res.success) {
+        setIsEditing(false);
+        if (soundEnabled) soundPlayer.playPop();
+      } else {
+        setEditError(res.message || 'Failed to update');
+      }
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to update');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Are you sure you want to delete post #${post.serialNumber}? This action cannot be undone.`)) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const res = await onDeletePost(post.id, post.authorToken, post.createdAt);
+      if (!res.success) {
+        alert(res.message || 'Failed to delete post.');
+      } else {
+        if (soundEnabled) soundPlayer.playPop();
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to delete post.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleEditComment = async (
+    commentId: string,
+    newContent: string,
+    commentAuthorToken: string,
+    createdAt: number
+  ) => {
+    return updateComment(post.id, commentId, newContent, currentUserToken, commentAuthorToken, createdAt);
+  };
+
+  const handleDeleteComment = async (
+    commentId: string,
+    commentAuthorToken: string
+  ) => {
+    return deleteComment(post.id, commentId, currentUserToken, commentAuthorToken);
   };
 
   const formatTimeAgo = (timestamp: number) => {
@@ -138,13 +229,14 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   return (
     <article
+      ref={cardRef}
       id={`post-card-${post.serialNumber}`}
-      className="bg-white rounded-2xl border border-zinc-200/90 shadow-xs hover:border-zinc-300 transition-all overflow-hidden"
+      className="bg-white rounded-2xl border border-zinc-200 shadow-xl shadow-zinc-300/70 hover:shadow-2xl hover:border-zinc-300 transition-all overflow-hidden"
     >
       <div className="p-4 sm:p-5">
         {/* Post Top Metadata: Serial Badge, Tag, Timestamp */}
         <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Primary Serial Badge */}
             <span className="inline-flex items-center justify-center font-mono font-bold text-sm bg-zinc-900 text-white px-3 py-1 rounded-xl shadow-xs">
               #{post.serialNumber}
@@ -158,22 +250,97 @@ export const PostCard: React.FC<PostCardProps> = ({
             )}
 
             {isAuthor && (
-              <span className="text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md">
-                You
-              </span>
+              <>
+                <span className="text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md">
+                  You
+                </span>
+                {isEditable ? (
+                  <span className="text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    Editable ({remainingMinutes}m left)
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-medium bg-zinc-100 text-zinc-600 border border-zinc-200 px-2 py-0.5 rounded-md flex items-center gap-1" title="Post is now permanent after 30 minutes">
+                    <Lock className="w-3 h-3 text-zinc-500" />
+                    Permanent
+                  </span>
+                )}
+              </>
             )}
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-zinc-400 font-mono" title={formatExactDate(post.createdAt)}>
-            <Clock className="w-3 h-3 ml-1" />
-            <span>{formatTimeAgo(post.createdAt)}</span>
+          <div className="flex items-center gap-2">
+            {/* Edit & Delete controls for author within 30 min */}
+            {isEditable && !isEditing && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    setEditContent(post.content);
+                    setIsEditing(true);
+                  }}
+                  className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                  title="Edit post (Available within 30 mins)"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                  title="Delete post (Available within 30 mins)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-mono" title={formatExactDate(post.createdAt)}>
+              <Clock className="w-3 h-3 ml-1" />
+              <span>{formatTimeAgo(post.createdAt)}</span>
+            </div>
           </div>
         </div>
 
-        {/* Post Main Content */}
-        <div className="text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal my-3">
-          {post.content}
-        </div>
+        {/* Post Main Content or Edit Form */}
+        {isEditing ? (
+          <div className="my-3 space-y-2">
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              rows={3}
+              maxLength={2000}
+              className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-sm sm:text-base text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400"
+              placeholder="Edit your post content..."
+            />
+            {editError && <p className="text-xs text-rose-600 font-medium">{editError}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditing(false);
+                  setEditContent(post.content);
+                  setEditError('');
+                }}
+                disabled={isSavingEdit}
+                className="px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                disabled={!editContent.trim() || isSavingEdit}
+                className="px-3.5 py-1.5 text-xs font-semibold bg-zinc-900 text-white hover:bg-black rounded-lg transition-colors shadow-xs disabled:opacity-50"
+              >
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal my-3">
+            {post.content}
+          </div>
+        )}
 
         {/* Post Actions Bar: Like, Comments Toggle, Share */}
         <div className="flex items-center justify-between pt-3 mt-2 border-t border-zinc-100 text-xs text-zinc-600 gap-1">
@@ -205,16 +372,16 @@ export const PostCard: React.FC<PostCardProps> = ({
               onClick={handleToggleComments}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-colors ${
                 isCommentsOpen
-                  ? 'bg-zinc-100 text-zinc-900 font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                  ? 'bg-black text-white font-semibold'
+                  : 'bg-zinc-900 text-white hover:bg-black'
               }`}
             >
-              <MessageSquare className="w-4 h-4" />
+              <MessageSquare className="w-4 h-4 text-white" />
               <span>{commentsCount > 0 ? `${commentsCount} Comments` : 'Comment'}</span>
               {isCommentsOpen ? (
-                <ChevronUp className="w-3.5 h-3.5 text-zinc-400" />
+                <ChevronUp className="w-3.5 h-3.5 text-zinc-300" />
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-400" />
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-300" />
               )}
             </button>
           </div>
@@ -246,6 +413,9 @@ export const PostCard: React.FC<PostCardProps> = ({
                     onToggleCommentLike={(commentId, currentLiked) =>
                       toggleCommentLike(post.id, commentId, currentUserToken, currentLiked)
                     }
+                    onEditComment={handleEditComment}
+                    onDeleteComment={handleDeleteComment}
+                    soundEnabled={soundEnabled}
                   />
                 ))}
               </div>
@@ -255,19 +425,20 @@ export const PostCard: React.FC<PostCardProps> = ({
           {/* New Comment Input Box */}
           <form onSubmit={handleCommentSubmit} className="flex items-center gap-2 pt-2 border-t border-zinc-200/60">
             <input
+              ref={commentInputRef}
               type="text"
               value={newCommentText}
               onChange={(e) => setNewCommentText(e.target.value)}
               placeholder={`Write a comment on post #${post.serialNumber}...`}
               maxLength={1000}
-              className="flex-1 bg-white border border-zinc-200 rounded-xl px-3 py-2 text-xs sm:text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400"
+              className="flex-1 bg-white border border-zinc-200/90 rounded-xl px-3 py-2 text-xs sm:text-sm text-zinc-900 placeholder:text-zinc-400 shadow-md focus:outline-none focus:ring-2 focus:ring-zinc-900/10 focus:border-zinc-400"
             />
             <button
               type="submit"
               disabled={!newCommentText.trim() || isSubmittingComment}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 newCommentText.trim() && !isSubmittingComment
-                  ? 'bg-zinc-900 text-white hover:bg-zinc-800 shadow-xs'
+                  ? 'bg-zinc-900 text-white hover:bg-black shadow-xs'
                   : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
               }`}
             >
