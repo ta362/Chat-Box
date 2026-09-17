@@ -44,6 +44,35 @@ export const db = (function() {
 const POSTS_COLLECTION = 'posts';
 const META_DOC_ID = 'post_serial_meta';
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Automatically cleans up posts older than 30 days to save database space
+ */
+export async function cleanupExpiredPosts(): Promise<number> {
+  try {
+    const cutoffTime = Date.now() - THIRTY_DAYS_MS;
+    const q = query(
+      collection(db, POSTS_COLLECTION),
+      where('createdAt', '<', cutoffTime),
+      limit(50)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return 0;
+
+    const batch = writeBatch(db);
+    snap.docs.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    await batch.commit();
+    console.log(`[Auto TTL] Cleaned up ${snap.docs.length} expired posts (>30 days old).`);
+    return snap.docs.length;
+  } catch (err) {
+    console.warn('[Auto TTL] Cleanup notice:', err);
+    return 0;
+  }
+}
+
 /**
  * Subscribe to real-time posts from Firestore (ordered strictly by serialNumber)
  */
@@ -51,6 +80,9 @@ export function subscribeToPosts(
   onUpdate: (posts: SerialPost[]) => void,
   onError?: (err: Error) => void
 ) {
+  // Trigger background cleanup of expired posts older than 30 days
+  cleanupExpiredPosts().catch(() => {});
+
   const q = query(
     collection(db, POSTS_COLLECTION),
     orderBy('serialNumber', 'asc'),
@@ -61,27 +93,35 @@ export function subscribeToPosts(
     q,
     (snapshot) => {
       const posts: SerialPost[] = [];
+      const now = Date.now();
+      const cutoff = now - THIRTY_DAYS_MS;
+
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        posts.push({
-          id: docSnap.id,
-          serialNumber: Number(data.serialNumber) || 1,
-          content: data.content || data.text || '',
-          createdAt:
-            data.createdAt instanceof Timestamp
-              ? data.createdAt.toMillis()
-              : typeof data.createdAt === 'number'
-              ? data.createdAt
-              : Date.now(),
-          authorToken: data.authorToken || 'anon',
-          likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
-          targetLikes: typeof data.targetLikes === 'number' ? data.targetLikes : undefined,
-          commentsCount: typeof data.commentsCount === 'number' ? data.commentsCount : 0,
-          targetComments: typeof data.targetComments === 'number' ? data.targetComments : undefined,
-          likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
-          reactions: data.reactions || {},
-          tag: data.tag || undefined,
-        });
+        const createdAt =
+          data.createdAt instanceof Timestamp
+            ? data.createdAt.toMillis()
+            : typeof data.createdAt === 'number'
+            ? data.createdAt
+            : Date.now();
+
+        // Keep posts strictly within 30 days
+        if (createdAt >= cutoff) {
+          posts.push({
+            id: docSnap.id,
+            serialNumber: Number(data.serialNumber) || 1,
+            content: data.content || data.text || '',
+            createdAt,
+            authorToken: data.authorToken || 'anon',
+            likesCount: typeof data.likesCount === 'number' ? data.likesCount : (data.likedBy?.length || 0),
+            targetLikes: typeof data.targetLikes === 'number' ? data.targetLikes : undefined,
+            commentsCount: typeof data.commentsCount === 'number' ? data.commentsCount : 0,
+            targetComments: typeof data.targetComments === 'number' ? data.targetComments : undefined,
+            likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
+            reactions: data.reactions || {},
+            tag: data.tag || undefined,
+          });
+        }
       });
       // Sort strictly chronologically by creation time and re-assign continuous serial numbers (#1, #2, #3...)
       posts.sort((a, b) => a.createdAt - b.createdAt);
