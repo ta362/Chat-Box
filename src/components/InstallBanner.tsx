@@ -75,16 +75,16 @@ export const InstallBanner: React.FC = () => {
           initial={{ y: -100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -100, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-          className="bg-zinc-900 text-white px-3 sm:px-4 py-2.5 border-b border-zinc-800 shadow-sm relative z-40"
+          transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+          className="fixed top-0 left-0 right-0 bg-zinc-900 text-white px-3 sm:px-4 py-3 border-b border-zinc-800 shadow-xl z-[100]"
         >
           <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
-                <Download className="w-3.5 h-3.5" />
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <Download className="w-4 h-4" />
               </div>
               <div className="text-xs truncate">
-                <span className="font-semibold text-zinc-100">
+                <span className="font-semibold text-zinc-100 block sm:inline text-sm sm:text-xs">
                   Install App on your PC / Mobile
                 </span>
                 <span className="hidden sm:inline text-zinc-400 ml-1.5">
@@ -94,21 +94,23 @@ export const InstallBanner: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <button
+              <motion.button
                 id="btn-banner-install"
                 onClick={handleInstallClick}
-                className="px-3 py-1 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-lg shadow-xs transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
+                animate={{ y: [0, -4, 0] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+                className="px-3.5 py-1.5 bg-white hover:bg-zinc-100 text-zinc-950 text-xs font-bold rounded-lg shadow-md transition-colors active:scale-95 flex items-center gap-1.5 cursor-pointer"
               >
-                <Download className="w-3 h-3 text-zinc-950" />
+                <Download className="w-3.5 h-3.5 text-zinc-950" />
                 <span>Install</span>
-              </button>
+              </motion.button>
               <button
                 id="btn-banner-dismiss"
                 onClick={handleDismiss}
-                className="p-1 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
+                className="p-1.5 text-zinc-400 hover:text-white rounded-md hover:bg-zinc-800 transition-colors"
                 title="Dismiss"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
           </div>
