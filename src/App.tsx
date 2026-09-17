@@ -99,12 +99,14 @@ export default function App() {
   // Scroll to bottom & new post notification states
   const [showScrollDown, setShowScrollDown] = useState<boolean>(false);
   const [hasNewPosts, setHasNewPosts] = useState<boolean>(false);
+  const [hasRestoredScroll, setHasRestoredScroll] = useState<boolean>(false);
 
   const authorToken = useMemo(() => getOrCreateAnonymousToken(), []);
   const previousPostsCountRef = useRef<number>(0);
 
-  // Monitor scroll position
+  // Monitor scroll position & persist last seen scroll position
   useEffect(() => {
+    let timeoutId: any = null;
     const handleScroll = () => {
       const scrollThreshold = 250;
       const isAwayFromBottom =
@@ -113,11 +115,47 @@ export default function App() {
       if (!isAwayFromBottom) {
         setHasNewPosts(false);
       }
+
+      // Debounce saving scroll position
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        try {
+          localStorage.setItem('anon_last_scroll_y', String(window.scrollY));
+        } catch {
+          // ignore
+        }
+      }, 200);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
+
+  // Restore scroll position once posts are loaded
+  useEffect(() => {
+    if (!hasRestoredScroll && posts.length > 0) {
+      try {
+        const savedScroll = localStorage.getItem('anon_last_scroll_y');
+        if (savedScroll) {
+          const scrollYNum = parseFloat(savedScroll);
+          if (!isNaN(scrollYNum) && scrollYNum > 0) {
+            setTimeout(() => {
+              window.scrollTo({
+                top: scrollYNum,
+                behavior: 'auto',
+              });
+            }, 120);
+          }
+        }
+      } catch {
+        // ignore
+      }
+      setHasRestoredScroll(true);
+    }
+  }, [posts, hasRestoredScroll]);
 
   // Next continuous serial number calculation
   const nextSerialNumber = useMemo(() => {
