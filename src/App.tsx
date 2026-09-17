@@ -33,6 +33,10 @@ import {
   MessageSquareOff,
   Plus,
   ArrowDown,
+  BookOpen,
+  Lock,
+  Scale,
+  CheckCircle,
 } from 'lucide-react';
 
 const INITIAL_FALLBACK_POSTS: SerialPost[] = [
@@ -91,6 +95,7 @@ export default function App() {
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState<boolean>(false);
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
+  const [activeNav, setActiveNav] = useState<string>('Instructions');
 
   // Serial direct search state
   const [searchedSerialPost, setSearchedSerialPost] = useState<SerialPost | null>(null);
@@ -474,6 +479,67 @@ export default function App() {
           if (isSearchOpen) setSearchQuery('');
         }}
       />
+
+      {/* Top Nav Pills */}
+      <div className="bg-white border-b border-zinc-200">
+        <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center gap-2 overflow-x-auto scrollbar-hide whitespace-nowrap">
+          <button
+            onClick={() => setActiveNav('Instructions')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeNav === 'Instructions'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>Instructions</span>
+          </button>
+          <button
+            onClick={() => { setActiveNav('About App'); setIsInfoOpen(true); }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeNav === 'About App'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>About App</span>
+          </button>
+          <button
+            onClick={() => setActiveNav('Privacy Policy')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeNav === 'Privacy Policy'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            <Lock className="w-4 h-4" />
+            <span>Privacy Policy</span>
+          </button>
+          <button
+            onClick={() => setActiveNav('Terms & Conditions')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeNav === 'Terms & Conditions'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            <Scale className="w-4 h-4" />
+            <span>Terms & Conditions</span>
+          </button>
+          <button
+            onClick={() => setActiveNav('Guidelines')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              activeNav === 'Guidelines'
+                ? 'bg-zinc-900 text-white shadow-sm'
+                : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+            }`}
+          >
+            <CheckCircle className="w-4 h-4" />
+            <span>Guidelines</span>
+          </button>
+        </div>
+      </div>
 
       {/* Main Container */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6 space-y-5">
