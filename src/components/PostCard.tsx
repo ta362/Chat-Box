@@ -352,14 +352,14 @@ export const PostCard: React.FC<PostCardProps> = ({
               onClick={handleLike}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-all ${
                 isLiked
-                  ? 'text-rose-600 bg-rose-50 border border-rose-200 shadow-xs font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                  ? 'text-zinc-900 bg-zinc-100 border border-zinc-200/80 shadow-xs font-semibold'
+                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent'
               }`}
               title={isLiked ? 'Unlike this post' : 'Like this post'}
             >
               <Heart
                 className={`w-4 h-4 transition-transform duration-200 ${
-                  isLiked ? 'fill-rose-500 text-rose-500 scale-110' : 'group-hover:scale-110'
+                  isLiked ? 'fill-zinc-900 text-zinc-900 scale-110' : 'group-hover:scale-110'
                 }`}
               />
               <span>{likesCount > 0 ? `${formatCompactNumber(likesCount)} Likes` : 'Like'}</span>
@@ -410,9 +410,22 @@ export const PostCard: React.FC<PostCardProps> = ({
                     key={comment.id}
                     comment={comment}
                     currentUserToken={currentUserToken}
-                    onToggleCommentLike={(commentId, currentLiked) =>
-                      toggleCommentLike(post.id, commentId, currentUserToken, currentLiked)
-                    }
+                    onToggleCommentLike={(commentId, currentLiked) => {
+                      setComments((prevComments) =>
+                        prevComments.map((c) => {
+                          if (c.id === commentId) {
+                            const newLiked = !currentLiked;
+                            const newLikedBy = newLiked
+                              ? [...(c.likedBy || []), currentUserToken]
+                              : (c.likedBy || []).filter((t) => t !== currentUserToken);
+                            const newCount = Math.max(0, (c.likesCount || 0) + (newLiked ? 1 : -1));
+                            return { ...c, likedBy: newLikedBy, likesCount: newCount };
+                          }
+                          return c;
+                        })
+                      );
+                      toggleCommentLike(post.id, commentId, currentUserToken, currentLiked);
+                    }}
                     onEditComment={handleEditComment}
                     onDeleteComment={handleDeleteComment}
                     soundEnabled={soundEnabled}

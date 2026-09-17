@@ -566,23 +566,25 @@ export async function toggleCommentLike(
   isCurrentlyLiked: boolean
 ) {
   try {
-    
+    // Generated/mock comments exist only in client memory
+    if (commentId.startsWith('generated-')) {
+      return;
+    }
+
     const commentRef = doc(db, POSTS_COLLECTION, postId, 'comments', commentId);
     if (isCurrentlyLiked) {
       await updateDoc(commentRef, {
         likedBy: arrayRemove(authorToken),
-        
         likesCount: increment(-1),
       });
     } else {
       await updateDoc(commentRef, {
         likedBy: arrayUnion(authorToken),
-        
         likesCount: increment(1),
       });
     }
   } catch (err) {
-    console.error('Failed to toggle comment like:', err);
+    console.warn('Notice on comment like update:', err);
   }
 }
 

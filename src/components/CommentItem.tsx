@@ -149,12 +149,12 @@ export const CommentItem: React.FC<CommentItemProps> = ({
             onClick={() => onToggleCommentLike(comment.id, isLiked)}
             className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-all ${
               isLiked
-                ? 'text-rose-600 bg-rose-50 border border-rose-100 font-semibold'
+                ? 'text-zinc-900 bg-zinc-100 border border-zinc-200/80 font-semibold'
                 : 'text-zinc-500 hover:text-zinc-800 hover:bg-zinc-200/50'
             }`}
             title={isLiked ? 'Unlike comment' : 'Like comment'}
           >
-            <Heart className={`w-3 h-3 ${isLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
+            <Heart className={`w-3 h-3 ${isLiked ? 'fill-zinc-900 text-zinc-900' : ''}`} />
             <span>{likesCount > 0 ? likesCount : ''}</span>
           </button>
         </div>
