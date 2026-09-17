@@ -11,6 +11,7 @@ import { checkIsSimilarPost } from './lib/similarity';
 import { computeCurrentLikesForPost } from './lib/likesEngine';
 import { computeCurrentCommentsForPost } from './lib/commentsEngine';
 import { startAutoPublishEngine, stopAutoPublishEngine, checkAndBackfillOfflinePosts } from './lib/autoPublisher';
+import { initNotificationScheduler } from './lib/notificationScheduler';
 import {
   getOrCreateAnonymousToken,
   getSoundPreference,
@@ -164,6 +165,10 @@ export default function App() {
   }, [posts]);
 
   // Persist local cache
+  useEffect(() => {
+    initNotificationScheduler();
+  }, []);
+
   useEffect(() => {
     try {
       if (posts.length > 0) {
