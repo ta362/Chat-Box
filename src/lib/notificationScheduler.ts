@@ -1,3 +1,5 @@
+import { soundPlayer } from './audio';
+
 /**
  * Periodic Local Push Notification Scheduler
  * Sends engaging English notifications every 3 hours on devices where permission is granted.
@@ -69,6 +71,9 @@ export function checkAndTriggerNotification(force: boolean = false) {
     const item = ENGAGING_NOTIFICATIONS[randomIndex];
 
     try {
+      // Play app pop sound when notification triggers
+      soundPlayer.playPop();
+
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then((reg) => {
           reg.showNotification(item.title, {
@@ -77,6 +82,7 @@ export function checkAndTriggerNotification(force: boolean = false) {
             badge: '/icon.svg',
             tag: 'anon-3hr-reminder',
             renotify: true,
+            vibrate: [200, 100, 200],
             data: { url: '/' },
           });
         });
