@@ -91,7 +91,7 @@ export const CommentItem: React.FC<CommentItemProps> = ({
       <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs font-semibold text-zinc-800">
-            {isAuthor ? 'You (Anonymous)' : 'Anonymous'}
+            {isAuthor ? 'You (Anon)' : 'Anon'}
           </span>
           <span className="text-[11px] text-zinc-400 flex items-center gap-1 font-mono">
             <Clock className="w-2.5 h-2.5" />
