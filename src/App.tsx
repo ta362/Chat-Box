@@ -32,6 +32,9 @@ import {
   MessageSquareOff,
   Plus,
   ArrowDown,
+  ArrowLeft,
+  Share2,
+  ExternalLink,
 } from 'lucide-react';
 
 const FILTER_TAGS = ['All', 'Private Locked', 'Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
@@ -50,6 +53,20 @@ export default function App() {
   const [isInfoOpen, setIsInfoOpen] = useState<boolean>(false);
   const [isDownloadOpen, setIsDownloadOpen] = useState<boolean>(false);
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
+
+  // Single Shared Post View State (e.g. ?post=5)
+  const [sharedPostSerial, setSharedPostSerial] = useState<number | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const urlParams = new URLSearchParams(window.location.search);
+    const postParam = urlParams.get('post');
+    if (postParam) {
+      const num = parseInt(postParam, 10);
+      return !isNaN(num) && num > 0 ? num : null;
+    }
+    return null;
+  });
+  const [fetchedSinglePost, setFetchedSinglePost] = useState<SerialPost | null>(null);
+  const [isLoadingSinglePost, setIsLoadingSinglePost] = useState<boolean>(false);
 
   // Serial direct search state
   const [searchedSerialPost, setSearchedSerialPost] = useState<SerialPost | null>(null);
@@ -218,6 +235,60 @@ export default function App() {
 
 
 
+  // Sync browser popstate and URL search parameters
+  useEffect(() => {
+    const handlePopState = () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const postParam = urlParams.get('post');
+      if (postParam) {
+        const num = parseInt(postParam, 10);
+        setSharedPostSerial(!isNaN(num) && num > 0 ? num : null);
+      } else {
+        setSharedPostSerial(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Fetch or resolve single shared post if not in memory
+  useEffect(() => {
+    if (sharedPostSerial === null) {
+      setFetchedSinglePost(null);
+      setIsLoadingSinglePost(false);
+      return;
+    }
+
+    const localMatch = posts.find((p) => p.serialNumber === sharedPostSerial);
+    if (localMatch) {
+      setFetchedSinglePost(localMatch);
+      setIsLoadingSinglePost(false);
+    } else {
+      setIsLoadingSinglePost(true);
+      fetchPostBySerial(sharedPostSerial)
+        .then((post) => {
+          setFetchedSinglePost(post);
+        })
+        .finally(() => {
+          setIsLoadingSinglePost(false);
+        });
+    }
+  }, [sharedPostSerial, posts]);
+
+  // Handler to clear single post view and go back to full board
+  const handleViewAllPosts = () => {
+    setSharedPostSerial(null);
+    setFetchedSinglePost(null);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('post');
+      window.history.pushState({}, '', url.pathname);
+    } catch {
+      // ignore
+    }
+  };
+
   // Serial search lookup
   useEffect(() => {
     const query = searchQuery.trim();
@@ -371,6 +442,9 @@ export default function App() {
         setPosts((prev) =>
           prev.map((p) => (p.id === postId ? { ...p, content: newContent.trim() } : p))
         );
+        if (fetchedSinglePost && fetchedSinglePost.id === postId) {
+          setFetchedSinglePost((prev) => prev ? { ...prev, content: newContent.trim() } : null);
+        }
       }
       return res;
     } catch (err: any) {
@@ -389,6 +463,9 @@ export default function App() {
       const res = await deleteSerialPost(postId, authorToken, postAuthorToken, createdAt, isPrivate);
       if (res.success) {
         setPosts((prev) => prev.filter((p) => p.id !== postId));
+        if (fetchedSinglePost && fetchedSinglePost.id === postId) {
+          setFetchedSinglePost(null);
+        }
       }
       return res;
     } catch (err: any) {
@@ -455,6 +532,8 @@ export default function App() {
           setIsSearchOpen(!isSearchOpen);
           if (isSearchOpen) setSearchQuery('');
         }}
+        isSinglePostMode={sharedPostSerial !== null}
+        onViewAllPosts={handleViewAllPosts}
       />
 
       {/* Main Container */}
@@ -477,8 +556,66 @@ export default function App() {
           </div>
         )}
 
-        {/* Posts Feed */}
-        {displayedPosts.length === 0 && !isSearchingSerial ? (
+        {/* Mode 1: Dedicated Single Shared Post View */}
+        {sharedPostSerial !== null ? (
+          <div className="space-y-4">
+            {/* Top Navigation Banner for Single Post */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 bg-white rounded-2xl border border-zinc-200 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <button
+                  id="btn-back-to-feed"
+                  onClick={handleViewAllPosts}
+                  className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 hover:text-zinc-900 transition-colors flex items-center gap-1.5 text-xs font-semibold"
+                  title="Return to public board"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>View All Posts</span>
+                </button>
+                <div className="text-xs text-zinc-500">
+                  Showing shared post <span className="font-bold text-zinc-900">#{sharedPostSerial}</span>
+                </div>
+              </div>
+
+              <div className="text-xs text-zinc-400">
+                Direct Shared Link View
+              </div>
+            </div>
+
+            {/* Single Post Content Card */}
+            {isLoadingSinglePost ? (
+              <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center text-zinc-500">
+                <div className="w-6 h-6 border-2 border-zinc-400 border-t-zinc-900 rounded-full animate-spin mx-auto mb-3" />
+                <p className="text-sm font-medium">Loading post #{sharedPostSerial}...</p>
+              </div>
+            ) : fetchedSinglePost ? (
+              <PostCard
+                key={fetchedSinglePost.id}
+                post={fetchedSinglePost}
+                currentUserToken={authorToken}
+                onToggleLike={handleToggleLike}
+                onAddReaction={handleAddReaction}
+                onEditPost={handleEditPost}
+                onDeletePost={handleDeletePost}
+                soundEnabled={soundEnabled}
+              />
+            ) : (
+              <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center text-zinc-500 space-y-3">
+                <MessageSquareOff className="w-10 h-10 mx-auto text-zinc-400 opacity-60" />
+                <h3 className="text-base font-semibold text-zinc-800">Post #{sharedPostSerial} not found</h3>
+                <p className="text-xs text-zinc-500 max-w-sm mx-auto">
+                  This post might have been deleted, expired, or the serial number is incorrect.
+                </p>
+                <button
+                  onClick={handleViewAllPosts}
+                  className="px-4 py-2 bg-zinc-900 hover:bg-black text-white rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Explore all posts
+                </button>
+              </div>
+            )}
+          </div>
+        ) : displayedPosts.length === 0 && !isSearchingSerial ? (
+          /* Mode 2: Empty Feed View */
           <div className="bg-white rounded-2xl border border-zinc-200 p-12 text-center text-zinc-400">
             <MessageSquareOff className="w-10 h-10 mx-auto mb-3 opacity-40 text-zinc-400" />
             <h3 className="text-base font-semibold text-zinc-700">No posts found</h3>
@@ -500,6 +637,7 @@ export default function App() {
             )}
           </div>
         ) : (
+          /* Mode 3: Normal All Posts Feed */
           <div className="space-y-4">
             {displayedPosts.map((post) => (
               <PostCard

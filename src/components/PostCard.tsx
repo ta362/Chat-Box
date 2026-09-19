@@ -509,24 +509,13 @@ export const PostCard: React.FC<PostCardProps> = ({
                 <p className="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
                   This post was sent as private. Only users who have the secret generated passcode key can unlock and read this message.
                 </p>
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  {post.privateHint && (
+                {post.privateHint && (
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
                     <div className="text-xs bg-white/80 border border-amber-200 rounded-lg px-2.5 py-1 text-amber-900 inline-block font-medium">
                       💡 <strong>Clue / Hint:</strong> {post.privateHint}
                     </div>
-                  )}
-                  {firstUnlockedTime && destructSecondsLeft !== null ? (
-                    <div className="text-xs bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1 text-amber-900 inline-flex items-center gap-1.5 font-semibold">
-                      <Timer className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
-                      <span>Already opened • Auto-deletes in {formatCountdown(destructSecondsLeft)}</span>
-                    </div>
-                  ) : (
-                    <div className="text-xs bg-amber-100/60 border border-amber-200/80 rounded-lg px-2.5 py-1 text-amber-900/90 inline-flex items-center gap-1.5 font-medium">
-                      <Timer className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Auto-deletes 30 minutes after first opening</span>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -608,22 +597,6 @@ export const PostCard: React.FC<PostCardProps> = ({
                   <ArrowLeft className="w-3.5 h-3.5 text-emerald-700" />
                   <span>Exit & Lock</span>
                 </button>
-              </div>
-
-              {/* 30-Minute Auto-Destruct Warning Banner */}
-              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-xs font-medium mb-3 shadow-xs">
-                <div className="flex items-center gap-2">
-                  <Timer className="w-4 h-4 text-amber-700 animate-pulse shrink-0" />
-                  <div>
-                    <span className="font-bold text-amber-900">Auto-destructs in: </span>
-                    <span className="font-mono font-bold text-amber-950 text-xs sm:text-sm">
-                      {destructSecondsLeft !== null ? formatCountdown(destructSecondsLeft) : '30m 00s'}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[11px] text-amber-850 hidden sm:inline font-normal">
-                  Permanently deletes 30 mins after opening
-                </span>
               </div>
 
               <div className="text-zinc-950 font-normal leading-relaxed">{unlockedContent}</div>
