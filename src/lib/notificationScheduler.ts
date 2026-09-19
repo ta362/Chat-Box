@@ -84,7 +84,7 @@ export function checkAndTriggerNotification(force: boolean = false) {
             renotify: true,
             vibrate: [200, 100, 200],
             data: { url: '/' },
-          });
+          } as any);
         });
       } else {
         new Notification(item.title, {
