@@ -20,6 +20,7 @@ import {
   AlertCircle,
   ArrowLeft,
   LogOut,
+  Timer,
 } from 'lucide-react';
 import { SerialPost, PostComment } from '../types';
 import { CommentItem } from './CommentItem';
@@ -29,6 +30,8 @@ import {
   toggleCommentLike,
   updateComment,
   deleteComment,
+  markPrivatePostOpened,
+  autoDeleteExpiredPrivatePost,
 } from '../lib/firebase';
 import { generateRealisticCommentsForPost } from '../lib/commentsEngine';
 import { soundPlayer } from '../lib/audio';
@@ -87,6 +90,41 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [unlockError, setUnlockError] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [showPasscodeInput, setShowPasscodeInput] = useState(false);
+
+  // 30-minute auto-destruct after first opened state
+  const [firstUnlockedTime, setFirstUnlockedTime] = useState<number | undefined>(post.firstUnlockedAt);
+  const [destructSecondsLeft, setDestructSecondsLeft] = useState<number | null>(() => {
+    if (!isPrivatePost || !post.firstUnlockedAt) return null;
+    const diff = Math.floor((post.firstUnlockedAt + 30 * 60 * 1000 - Date.now()) / 1000);
+    return Math.max(0, diff);
+  });
+
+  // Sync firstUnlockedAt when updated in real-time
+  useEffect(() => {
+    if (post.firstUnlockedAt && (!firstUnlockedTime || post.firstUnlockedAt < firstUnlockedTime)) {
+      setFirstUnlockedTime(post.firstUnlockedAt);
+    }
+  }, [post.firstUnlockedAt, firstUnlockedTime]);
+
+  // Run 1-second interval to count down and auto-delete when 30 minutes expire after opening
+  useEffect(() => {
+    if (!isPrivatePost || !firstUnlockedTime) return;
+
+    const THIRTY_MINS_SEC = 30 * 60;
+    const checkTimer = () => {
+      const elapsedSec = Math.floor((Date.now() - firstUnlockedTime) / 1000);
+      const remainingSec = Math.max(0, THIRTY_MINS_SEC - elapsedSec);
+      setDestructSecondsLeft(remainingSec);
+      if (remainingSec <= 0) {
+        // Automatically delete the post when 30 mins after opening expires
+        autoDeleteExpiredPrivatePost(post.id);
+      }
+    };
+
+    checkTimer();
+    const interval = setInterval(checkTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isPrivatePost, firstUnlockedTime, post.id]);
 
   const isAuthor = post.authorToken === currentUserToken;
   const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(currentUserToken);
@@ -256,6 +294,11 @@ export const PostCard: React.FC<PostCardProps> = ({
       // 2. Decrypt post content
       const decrypted = await decryptPostContent(post.content, cleanPass);
       setUnlockedContent(decrypted);
+
+      // 3. Mark post as opened in Firestore to start 30-minute self-destruct timer
+      const openedAt = await markPrivatePostOpened(post.id);
+      setFirstUnlockedTime(openedAt);
+
       if (soundEnabled) {
         soundPlayer.playPop();
       }
@@ -302,6 +345,12 @@ export const PostCard: React.FC<PostCardProps> = ({
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  const formatCountdown = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins}m ${secs < 10 ? '0' : ''}${secs}s`;
   };
 
   return (
@@ -352,9 +401,13 @@ export const PostCard: React.FC<PostCardProps> = ({
                   You
                 </span>
                 {isPrivatePost ? (
-                  <span className="text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1" title="Private posts can be deleted anytime by you">
-                    <Trash2 className="w-3 h-3 text-amber-700" />
-                    Deletable Anytime
+                  <span className="text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1" title="Private posts can be deleted anytime by author, and auto-delete 30 minutes after being opened">
+                    <Timer className="w-3 h-3 text-amber-700" />
+                    {firstUnlockedTime && destructSecondsLeft !== null ? (
+                      <span className="font-semibold text-amber-900">Auto-destruct: {formatCountdown(destructSecondsLeft)}</span>
+                    ) : (
+                      <span>Auto-destructs 30m after open</span>
+                    )}
                   </span>
                 ) : isEditable ? (
                   <span className="text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
@@ -456,11 +509,24 @@ export const PostCard: React.FC<PostCardProps> = ({
                 <p className="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
                   This post was sent as private. Only users who have the secret generated passcode key can unlock and read this message.
                 </p>
-                {post.privateHint && (
-                  <div className="mt-2 text-xs bg-white/80 border border-amber-200 rounded-lg px-2.5 py-1 text-amber-900 inline-block font-medium">
-                    💡 <strong>Clue / Hint:</strong> {post.privateHint}
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {post.privateHint && (
+                    <div className="text-xs bg-white/80 border border-amber-200 rounded-lg px-2.5 py-1 text-amber-900 inline-block font-medium">
+                      💡 <strong>Clue / Hint:</strong> {post.privateHint}
+                    </div>
+                  )}
+                  {firstUnlockedTime && destructSecondsLeft !== null ? (
+                    <div className="text-xs bg-amber-100 border border-amber-300 rounded-lg px-2.5 py-1 text-amber-900 inline-flex items-center gap-1.5 font-semibold">
+                      <Timer className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
+                      <span>Already opened • Auto-deletes in {formatCountdown(destructSecondsLeft)}</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs bg-amber-100/60 border border-amber-200/80 rounded-lg px-2.5 py-1 text-amber-900/90 inline-flex items-center gap-1.5 font-medium">
+                      <Timer className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Auto-deletes 30 minutes after first opening</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -543,6 +609,23 @@ export const PostCard: React.FC<PostCardProps> = ({
                   <span>Exit & Lock</span>
                 </button>
               </div>
+
+              {/* 30-Minute Auto-Destruct Warning Banner */}
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-xs font-medium mb-3 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <Timer className="w-4 h-4 text-amber-700 animate-pulse shrink-0" />
+                  <div>
+                    <span className="font-bold text-amber-900">Auto-destructs in: </span>
+                    <span className="font-mono font-bold text-amber-950 text-xs sm:text-sm">
+                      {destructSecondsLeft !== null ? formatCountdown(destructSecondsLeft) : '30m 00s'}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-[11px] text-amber-850 hidden sm:inline font-normal">
+                  Permanently deletes 30 mins after opening
+                </span>
+              </div>
+
               <div className="text-zinc-950 font-normal leading-relaxed">{unlockedContent}</div>
             </div>
             <p className="text-[11px] text-zinc-400 italic text-right pr-1">

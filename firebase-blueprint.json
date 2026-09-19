@@ -15,7 +15,11 @@
         "targetComments": { "type": "number" },
         "likedBy": { "type": "array" },
         "reactions": { "type": "object" },
-        "tag": { "type": "string" }
+        "tag": { "type": "string" },
+        "isPrivate": { "type": "boolean" },
+        "passcodeHash": { "type": "string" },
+        "privateHint": { "type": "string" },
+        "firstUnlockedAt": { "type": "number" }
       },
       "required": ["serialNumber", "content", "createdAt", "authorToken"]
     },

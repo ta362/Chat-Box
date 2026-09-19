@@ -1,4 +1,4 @@
-const CACHE_NAME = 'anon-serial-board-v1';
+const CACHE_NAME = 'anon-serial-board-v2';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

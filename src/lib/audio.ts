@@ -1,3 +1,5 @@
+import { getSoundPreference } from './storage';
+
 /**
  * Subtle sound effects generated via Web Audio API without external asset dependencies
  */
@@ -7,6 +9,7 @@ class SoundPlayer {
 
   private getContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
+    if (!getSoundPreference()) return null;
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
@@ -21,6 +24,7 @@ class SoundPlayer {
 
   playPop() {
     try {
+      if (!getSoundPreference()) return;
       const ctx = this.getContext();
       if (!ctx) return;
 
@@ -46,6 +50,7 @@ class SoundPlayer {
 
   playSend() {
     try {
+      if (!getSoundPreference()) return;
       const ctx = this.getContext();
       if (!ctx) return;
 

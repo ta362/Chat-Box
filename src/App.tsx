@@ -24,6 +24,7 @@ import {
   fetchPostBySerial,
   updateSerialPost,
   deleteSerialPost,
+  autoDeleteExpiredPrivatePost,
 } from './lib/firebase';
 import {
   Sparkles,
@@ -190,6 +191,30 @@ export default function App() {
       unsubscribe();
     };
   }, [authorToken, soundEnabled]);
+
+  // Auto-clean expired private posts (30 minutes after being first opened)
+  useEffect(() => {
+    const sweepExpiredPosts = () => {
+      const now = Date.now();
+      const THIRTY_MINS_MS = 30 * 60 * 1000;
+      let removedAny = false;
+      const filtered = posts.filter((p) => {
+        if (p.isPrivate && p.firstUnlockedAt && now >= p.firstUnlockedAt + THIRTY_MINS_MS) {
+          autoDeleteExpiredPrivatePost(p.id);
+          removedAny = true;
+          return false;
+        }
+        return true;
+      });
+
+      if (removedAny) {
+        setPosts(filtered);
+      }
+    };
+
+    const timer = setInterval(sweepExpiredPosts, 4000);
+    return () => clearInterval(timer);
+  }, [posts]);
 
 
 
@@ -419,6 +444,8 @@ export default function App() {
       {/* Top Header */}
       <Header
         totalPosts={posts.length > 0 ? Math.max(...posts.map((p) => p.serialNumber)) : 0}
+        soundEnabled={soundEnabled}
+        onToggleSound={handleToggleSound}
         onOpenInfo={() => setIsInfoOpen(true)}
         onOpenDownload={() => setIsDownloadOpen(true)}
         searchQuery={searchQuery}

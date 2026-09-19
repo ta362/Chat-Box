@@ -17,6 +17,7 @@ import {
   limit,
   limitToLast,
   getDocs,
+  getDoc,
   runTransaction,
   deleteDoc,
   writeBatch,
@@ -105,8 +106,24 @@ export function subscribeToPosts(
             ? data.createdAt
             : Date.now();
 
+        // Discard and delete any auto-generated bot post
+        if (data.authorToken && (data.authorToken.startsWith('user-anon-') || data.authorToken.startsWith('bot-'))) {
+          deleteDoc(docSnap.ref).catch(() => {});
+          return;
+        }
+
         // Keep posts strictly within 30 days
         if (createdAt >= cutoff) {
+          const isPrivate = Boolean(data.isPrivate);
+          const firstUnlockedAt = typeof data.firstUnlockedAt === 'number' ? data.firstUnlockedAt : undefined;
+
+          // Auto-delete private posts if 30 minutes have elapsed since first opened
+          const THIRTY_MINS_MS = 30 * 60 * 1000;
+          if (isPrivate && firstUnlockedAt && now >= firstUnlockedAt + THIRTY_MINS_MS) {
+            deleteDoc(docSnap.ref).catch(() => {});
+            return;
+          }
+
           posts.push({
             id: docSnap.id,
             serialNumber: Number(data.serialNumber) || 1,
@@ -120,9 +137,10 @@ export function subscribeToPosts(
             likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
             reactions: data.reactions || {},
             tag: data.tag || undefined,
-            isPrivate: Boolean(data.isPrivate),
+            isPrivate,
             passcodeHash: data.passcodeHash || undefined,
             privateHint: data.privateHint || undefined,
+            firstUnlockedAt,
           });
         }
       });
@@ -156,6 +174,18 @@ export async function fetchPostBySerial(
     if (!snap.empty) {
       const docSnap = snap.docs[0];
       const data = docSnap.data();
+
+      const isPrivate = Boolean(data.isPrivate);
+      const firstUnlockedAt = typeof data.firstUnlockedAt === 'number' ? data.firstUnlockedAt : undefined;
+      if (data.authorToken && (data.authorToken.startsWith('user-anon-') || data.authorToken.startsWith('bot-'))) {
+        deleteDoc(docSnap.ref).catch(() => {});
+        return null;
+      }
+      if (isPrivate && firstUnlockedAt && Date.now() >= firstUnlockedAt + 30 * 60 * 1000) {
+        deleteDoc(docSnap.ref).catch(() => {});
+        return null;
+      }
+
       return {
         id: docSnap.id,
         serialNumber: Number(data.serialNumber) || serialNumber,
@@ -172,9 +202,10 @@ export async function fetchPostBySerial(
         likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
         reactions: data.reactions || {},
         tag: data.tag || undefined,
-        isPrivate: Boolean(data.isPrivate),
+        isPrivate,
         passcodeHash: data.passcodeHash || undefined,
         privateHint: data.privateHint || undefined,
+        firstUnlockedAt,
       };
     }
     return null;
@@ -352,6 +383,46 @@ export async function deleteSerialPost(
       success: false,
       message: err?.message || 'Failed to delete post.',
     };
+  }
+}
+
+/**
+ * Mark a private post as first opened/unlocked.
+ * Returns the recorded opened timestamp.
+ */
+export async function markPrivatePostOpened(postId: string): Promise<number> {
+  try {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) return Date.now();
+
+    const data = postSnap.data();
+    if (typeof data.firstUnlockedAt === 'number') {
+      return data.firstUnlockedAt;
+    }
+
+    const now = Date.now();
+    await updateDoc(postRef, {
+      firstUnlockedAt: now,
+    });
+    return now;
+  } catch (err) {
+    console.warn('Could not record firstUnlockedAt in Firestore (using local timestamp):', err);
+    return Date.now();
+  }
+}
+
+/**
+ * Automatically delete an expired private post that has exceeded the 30-minute self-destruct window.
+ */
+export async function autoDeleteExpiredPrivatePost(postId: string): Promise<boolean> {
+  try {
+    const postRef = doc(db, POSTS_COLLECTION, postId);
+    await deleteDoc(postRef);
+    return true;
+  } catch (err) {
+    console.error('Failed to auto-delete expired private post:', err);
+    return false;
   }
 }
 

@@ -6,7 +6,10 @@ service cloud.firestore {
       
       allow create: if request.resource.data.content is string 
         && request.resource.data.content.size() > 0 
-        && request.resource.data.content.size() <= 5000;
+        && request.resource.data.content.size() <= 5000
+        && request.resource.data.authorToken is string
+        && request.resource.data.authorToken.matches('^anon_[a-zA-Z0-9]+$')
+        && !request.resource.data.authorToken.matches('^user-anon-.*');
         
       allow update: if (
         // 1. Author edits post
@@ -38,6 +41,12 @@ service cloud.firestore {
         // 4. Update reactions
         (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+        )
+        ||
+        // 5. Private post first unlock timestamp
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstUnlockedAt'])
+          && request.resource.data.firstUnlockedAt is number
         )
       );
 

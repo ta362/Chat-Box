@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Search, Info, Share2, Check } from 'lucide-react';
+import { Search, Info, Share2, Check, Volume2, VolumeX } from 'lucide-react';
 
 interface HeaderProps {
   onlineCount: number;
   totalPosts: number;
+  soundEnabled?: boolean;
+  onToggleSound?: () => void;
   onOpenInfo: () => void;
   onOpenDownload?: () => void;
   searchQuery: string;
@@ -14,6 +16,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   totalPosts,
+  soundEnabled = false,
+  onToggleSound,
   onOpenInfo,
   searchQuery,
   onSearchChange,
@@ -71,6 +75,27 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-1 sm:gap-2">
+          {/* Sound Toggle Button */}
+          {onToggleSound && (
+            <button
+              id="btn-toggle-sound"
+              onClick={onToggleSound}
+              className={`p-2 rounded-lg transition-colors ${
+                soundEnabled
+                  ? 'text-zinc-900 bg-zinc-100 hover:bg-zinc-200'
+                  : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'
+              }`}
+              title={soundEnabled ? 'Sound is ON (Click to Mute)' : 'Sound is MUTED (Click to Unmute)'}
+              aria-label={soundEnabled ? 'Mute sound' : 'Unmute sound'}
+            >
+              {soundEnabled ? (
+                <Volume2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <VolumeX className="w-4 h-4 text-zinc-400" />
+              )}
+            </button>
+          )}
+
           {/* Share App Button */}
           <button
             id="btn-share-app"

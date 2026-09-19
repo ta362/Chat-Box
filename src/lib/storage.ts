@@ -12,9 +12,9 @@ export function getOrCreateAnonymousToken(): string {
 }
 
 export function getSoundPreference(): boolean {
-  if (typeof window === 'undefined') return true;
+  if (typeof window === 'undefined') return false;
   const val = localStorage.getItem(SOUND_ENABLED_KEY);
-  return val === null ? true : val === 'true';
+  return val === 'true';
 }
 
 export function setSoundPreference(enabled: boolean): void {

@@ -29,6 +29,7 @@ export interface SerialPost {
   isPrivate?: boolean;
   passcodeHash?: string;
   privateHint?: string;
+  firstUnlockedAt?: number;
 }
 
 // Backward compatibility alias for any older references

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, Plus, X, Tag, Sparkles, PenLine, AlertTriangle, ShieldAlert, Lock, Key, Copy, Check, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Send, Plus, X, Tag, Sparkles, PenLine, AlertTriangle, ShieldAlert, Lock, Key, Copy, Check, RefreshCw, Eye, EyeOff, Timer } from 'lucide-react';
 import { SerialPost } from '../types';
 import { checkIsSimilarPost } from '../lib/similarity';
 import { generateRandomPasscode, hashPasscode, encryptPostContent } from '../lib/crypto';
@@ -331,6 +331,11 @@ export const CreatePostCard: React.FC<CreatePostCardProps> = ({
                   <p className="text-[11px] text-amber-900 leading-tight">
                     ⚠️ <strong>Copy this key now!</strong> Send it separately to the person you want to read this post. Without this key, no one can unlock or view the message.
                   </p>
+
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-950 bg-amber-100/80 px-2.5 py-1.5 rounded-lg border border-amber-300/80">
+                    <Timer className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                    <span><strong>Auto-Destruct:</strong> This post will automatically and permanently delete 30 minutes after being first opened by the reader.</span>
+                  </div>
                 </div>
 
                 {/* Optional Hint */}
