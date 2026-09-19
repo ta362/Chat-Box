@@ -1,6 +1,6 @@
 {
   "name": "Anonymous Serial Post Board",
-  "description": "An anonymous public post board where all posts are assigned sequential serial numbers (#1, #2, #3...) with likes, comment discussions, and real-time synchronization.",
+  "description": "An anonymous public post board where all posts are assigned sequential serial numbers (#1, #2, #3...) with private passcode-locked posts, end-to-end encryption, likes, comment discussions, and real-time synchronization.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

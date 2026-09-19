@@ -120,6 +120,9 @@ export function subscribeToPosts(
             likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
             reactions: data.reactions || {},
             tag: data.tag || undefined,
+            isPrivate: Boolean(data.isPrivate),
+            passcodeHash: data.passcodeHash || undefined,
+            privateHint: data.privateHint || undefined,
           });
         }
       });
@@ -169,6 +172,9 @@ export async function fetchPostBySerial(
         likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
         reactions: data.reactions || {},
         tag: data.tag || undefined,
+        isPrivate: Boolean(data.isPrivate),
+        passcodeHash: data.passcodeHash || undefined,
+        privateHint: data.privateHint || undefined,
       };
     }
     return null;
@@ -185,7 +191,12 @@ export async function createSerialPost(
   content: string,
   authorToken: string,
   tag?: string,
-  overrideTimestamp?: number
+  overrideTimestamp?: number,
+  options?: {
+    isPrivate?: boolean;
+    passcodeHash?: string;
+    privateHint?: string;
+  }
 ): Promise<SerialPost> {
   const trimmed = content.trim();
   const counterRef = doc(db, 'meta', META_DOC_ID);
@@ -260,6 +271,9 @@ export async function createSerialPost(
     
     reactions: {},
     tag: tag || null,
+    isPrivate: Boolean(options?.isPrivate),
+    passcodeHash: options?.passcodeHash || null,
+    privateHint: options?.privateHint || null,
   };
 
   const docRef = await addDoc(collection(db, POSTS_COLLECTION), newPostData);
@@ -268,7 +282,32 @@ export async function createSerialPost(
     id: docRef.id,
     ...newPostData,
     tag: tag || undefined,
+    isPrivate: Boolean(options?.isPrivate),
+    passcodeHash: options?.passcodeHash || undefined,
+    privateHint: options?.privateHint || undefined,
   };
+}
+
+/**
+ * Utility to delete all posts from the collection.
+ */
+export async function deleteAllPosts(): Promise<number> {
+  try {
+    const q = query(collection(db, POSTS_COLLECTION));
+    const snap = await getDocs(q);
+    if (snap.empty) return 0;
+
+    const batch = writeBatch(db);
+    snap.docs.forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    await batch.commit();
+    console.log(`[Mass Deletion] Deleted ${snap.docs.length} posts.`);
+    return snap.docs.length;
+  } catch (err) {
+    console.error('[Mass Deletion] Error:', err);
+    return 0;
+  }
 }
 
 /**
@@ -278,7 +317,8 @@ export async function deleteSerialPost(
   postId: string,
   authorToken: string,
   postAuthorToken: string,
-  createdAt: number
+  createdAt: number,
+  isPrivate?: boolean
 ): Promise<{ success: boolean; message?: string }> {
   // Check author token match
   if (authorToken !== postAuthorToken) {
@@ -288,15 +328,17 @@ export async function deleteSerialPost(
     };
   }
 
-  // Check 30 minute time limit (30 * 60 * 1000 = 1,800,000 ms)
-  const THIRTY_MINUTES_MS = 30 * 60 * 1000;
-  const elapsed = Date.now() - createdAt;
+  // If NOT a private post, enforce 30 minute time limit (30 * 60 * 1000 = 1,800,000 ms)
+  if (!isPrivate) {
+    const THIRTY_MINUTES_MS = 30 * 60 * 1000;
+    const elapsed = Date.now() - createdAt;
 
-  if (elapsed > THIRTY_MINUTES_MS) {
-    return {
-      success: false,
-      message: '30 minutes have passed! This post can no longer be deleted.',
-    };
+    if (elapsed > THIRTY_MINUTES_MS) {
+      return {
+        success: false,
+        message: '30 minutes have passed! This public post can no longer be deleted.',
+      };
+    }
   }
 
   try {

@@ -41,7 +41,7 @@ service cloud.firestore {
         )
       );
 
-      allow delete: if request.time.toMillis() > resource.data.createdAt + 2592000000;
+      allow delete: if true;
 
       match /comments/{commentId} {
         allow read: if true;
@@ -63,7 +63,7 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likedBy', 'likesCount'])
           )
         );
-        allow delete: if request.time.toMillis() > resource.data.createdAt + 2592000000;
+        allow delete: if true;
       }
     }
     

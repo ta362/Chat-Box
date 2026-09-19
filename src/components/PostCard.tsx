@@ -12,6 +12,14 @@ import {
   Edit3,
   Trash2,
   Lock,
+  Unlock,
+  Key,
+  Eye,
+  EyeOff,
+  Copy,
+  AlertCircle,
+  ArrowLeft,
+  LogOut,
 } from 'lucide-react';
 import { SerialPost, PostComment } from '../types';
 import { CommentItem } from './CommentItem';
@@ -24,6 +32,7 @@ import {
 } from '../lib/firebase';
 import { generateRealisticCommentsForPost } from '../lib/commentsEngine';
 import { soundPlayer } from '../lib/audio';
+import { hashPasscode, decryptPostContent } from '../lib/crypto';
 
 interface PostCardProps {
   post: SerialPost;
@@ -31,7 +40,7 @@ interface PostCardProps {
   onToggleLike: (postId: string, currentLiked: boolean) => void;
   onAddReaction: (postId: string, emoji: string) => void;
   onEditPost: (postId: string, newContent: string, postAuthorToken: string, createdAt: number) => Promise<{ success: boolean; message?: string }>;
-  onDeletePost: (postId: string, postAuthorToken: string, createdAt: number) => Promise<{ success: boolean; message?: string }>;
+  onDeletePost: (postId: string, postAuthorToken: string, createdAt: number, isPrivate?: boolean) => Promise<{ success: boolean; message?: string }>;
   soundEnabled: boolean;
 }
 
@@ -70,6 +79,15 @@ export const PostCard: React.FC<PostCardProps> = ({
   const [editError, setEditError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Private post unlock state (transient in-memory only; auto-locks when user clicks outside/exits)
+  const isPrivatePost = Boolean(post.isPrivate);
+  const [unlockedContent, setUnlockedContent] = useState<string | null>(null);
+  const [passcodeInput, setPasscodeInput] = useState('');
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState('');
+  const [showKeyInput, setShowKeyInput] = useState(false);
+  const [showPasscodeInput, setShowPasscodeInput] = useState(false);
+
   const isAuthor = post.authorToken === currentUserToken;
   const isLiked = Array.isArray(post.likedBy) && post.likedBy.includes(currentUserToken);
   const likesCount = typeof post.likesCount === 'number' ? post.likesCount : (post.likedBy?.length || 0);
@@ -77,8 +95,31 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   const THIRTY_MINUTES_MS = 30 * 60 * 1000;
   const elapsed = Date.now() - post.createdAt;
-  const isEditable = isAuthor && elapsed <= THIRTY_MINUTES_MS;
+  // Public posts are editable and deletable within 30 mins; Private posts can be deleted anytime by author with no time limit
+  const isEditable = !isPrivatePost && isAuthor && elapsed <= THIRTY_MINUTES_MS;
+  const isDeletable = isAuthor && (isPrivatePost || elapsed <= THIRTY_MINUTES_MS);
   const remainingMinutes = Math.max(0, Math.ceil((THIRTY_MINUTES_MS - elapsed) / (1000 * 60)));
+
+  // Auto-lock private post when user leaves/clicks outside the post card
+  useEffect(() => {
+    if (!unlockedContent) return;
+
+    const handleOutsideClickOrTouch = (event: MouseEvent | TouchEvent) => {
+      if (cardRef.current && !cardRef.current.contains(event.target as Node)) {
+        // User clicked outside the post - auto lock immediately
+        setUnlockedContent(null);
+        setPasscodeInput('');
+        setUnlockError('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsideClickOrTouch);
+    document.addEventListener('touchstart', handleOutsideClickOrTouch);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClickOrTouch);
+      document.removeEventListener('touchstart', handleOutsideClickOrTouch);
+    };
+  }, [unlockedContent]);
 
   // Close comment drawer when clicking outside the post card
   useEffect(() => {
@@ -177,7 +218,7 @@ export const PostCard: React.FC<PostCardProps> = ({
     }
     setIsDeleting(true);
     try {
-      const res = await onDeletePost(post.id, post.authorToken, post.createdAt);
+      const res = await onDeletePost(post.id, post.authorToken, post.createdAt, isPrivatePost);
       if (!res.success) {
         alert(res.message || 'Failed to delete post.');
       } else {
@@ -187,6 +228,42 @@ export const PostCard: React.FC<PostCardProps> = ({
       alert(err?.message || 'Failed to delete post.');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleUnlockPost = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanPass = passcodeInput.trim().toUpperCase();
+    if (!cleanPass) {
+      setUnlockError('Please enter the secret passcode');
+      return;
+    }
+
+    setIsUnlocking(true);
+    setUnlockError('');
+
+    try {
+      // 1. Check passcode hash if present
+      if (post.passcodeHash) {
+        const computedHash = await hashPasscode(cleanPass);
+        if (computedHash !== post.passcodeHash) {
+          setUnlockError('Incorrect passcode key. Please ask the post author.');
+          setIsUnlocking(false);
+          return;
+        }
+      }
+
+      // 2. Decrypt post content
+      const decrypted = await decryptPostContent(post.content, cleanPass);
+      setUnlockedContent(decrypted);
+      if (soundEnabled) {
+        soundPlayer.playPop();
+      }
+    } catch (err: any) {
+      console.warn('Unlock decrypt failed:', err);
+      setUnlockError('Failed to decrypt. Key might be wrong or invalid.');
+    } finally {
+      setIsUnlocking(false);
     }
   };
 
@@ -249,12 +326,37 @@ export const PostCard: React.FC<PostCardProps> = ({
               </span>
             )}
 
+            {isPrivatePost && (
+              <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
+                unlockedContent !== null
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-300'
+              }`}>
+                {unlockedContent !== null ? (
+                  <>
+                    <Unlock className="w-2.5 h-2.5 text-emerald-600" />
+                    Unlocked
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-2.5 h-2.5 text-amber-700" />
+                    Private Locked
+                  </>
+                )}
+              </span>
+            )}
+
             {isAuthor && (
               <>
                 <span className="text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-md">
                   You
                 </span>
-                {isEditable ? (
+                {isPrivatePost ? (
+                  <span className="text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1" title="Private posts can be deleted anytime by you">
+                    <Trash2 className="w-3 h-3 text-amber-700" />
+                    Deletable Anytime
+                  </span>
+                ) : isEditable ? (
                   <span className="text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     Editable ({remainingMinutes}m left)
@@ -270,27 +372,31 @@ export const PostCard: React.FC<PostCardProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Edit & Delete controls for author within 30 min */}
-            {isEditable && !isEditing && (
+            {/* Edit & Delete controls for author: private posts can be deleted anytime, public posts within 30 min */}
+            {isAuthor && !isEditing && (
               <div className="flex items-center gap-1">
-                <button
-                  onClick={() => {
-                    setEditContent(post.content);
-                    setIsEditing(true);
-                  }}
-                  className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
-                  title="Edit post (Available within 30 mins)"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                  title="Delete post (Available within 30 mins)"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                {isEditable && (
+                  <button
+                    onClick={() => {
+                      setEditContent(post.content);
+                      setIsEditing(true);
+                    }}
+                    className="p-1.5 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 rounded-lg transition-colors"
+                    title="Edit post (Available within 30 mins)"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {isDeletable && (
+                  <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                    title={isPrivatePost ? "Delete private post (Available anytime)" : "Delete post (Available within 30 mins)"}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             )}
 
@@ -336,60 +442,236 @@ export const PostCard: React.FC<PostCardProps> = ({
               </button>
             </div>
           </div>
+        ) : isPrivatePost && unlockedContent === null ? (
+          /* Locked State for Private Post */
+          <div className="my-3 p-4 sm:p-5 rounded-2xl bg-amber-50/50 border border-amber-200/90 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center shrink-0 shadow-xs">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h4 className="font-bold text-amber-950 text-sm sm:text-base flex items-center gap-1.5">
+                  Private Post — Locked
+                </h4>
+                <p className="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
+                  This post was sent as private. Only users who have the secret generated passcode key can unlock and read this message.
+                </p>
+                {post.privateHint && (
+                  <div className="mt-2 text-xs bg-white/80 border border-amber-200 rounded-lg px-2.5 py-1 text-amber-900 inline-block font-medium">
+                    💡 <strong>Clue / Hint:</strong> {post.privateHint}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Passcode Unlock Input Form */}
+            <form onSubmit={handleUnlockPost} className="pt-2 border-t border-amber-200/60 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showPasscodeInput ? 'text' : 'password'}
+                  value={passcodeInput}
+                  onChange={(e) => {
+                    setPasscodeInput(e.target.value);
+                    if (unlockError) setUnlockError('');
+                  }}
+                  placeholder="Enter Secret Passcode (e.g. KEY-XXXX-XXXX)..."
+                  className="w-full bg-white border border-amber-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-zinc-900 placeholder:text-amber-800/50 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono tracking-wider"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasscodeInput(!showPasscodeInput)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 p-1"
+                  title={showPasscodeInput ? 'Hide password' : 'Show password'}
+                >
+                  {showPasscodeInput ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={!passcodeInput.trim() || isUnlocking}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition-all shadow-xs shrink-0 cursor-pointer ${
+                  passcodeInput.trim() && !isUnlocking
+                    ? 'bg-amber-600 hover:bg-amber-700 text-white active:scale-98'
+                    : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+                }`}
+              >
+                {isUnlocking ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Unlocking...</span>
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Unlock Post</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            {unlockError && (
+              <div className="text-xs text-rose-600 font-medium flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{unlockError}</span>
+              </div>
+            )}
+          </div>
+        ) : isPrivatePost && unlockedContent !== null ? (
+          /* Unlocked State for Private Post */
+          <div className="my-3 space-y-2">
+            <div className="p-3.5 sm:p-5 rounded-2xl bg-gradient-to-b from-emerald-50/80 to-emerald-50/40 border border-emerald-200 shadow-xs text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-emerald-200/70 text-xs">
+                <span className="flex items-center gap-1.5 font-bold text-emerald-900">
+                  <Unlock className="w-4 h-4 text-emerald-600" />
+                  Unlocked Private Message
+                </span>
+                
+                {/* Arrow Exit / Lock Button */}
+                <button
+                  type="button"
+                  id={`btn-exit-lock-post-${post.id}`}
+                  onClick={() => {
+                    setUnlockedContent(null);
+                    setPasscodeInput('');
+                    setUnlockError('');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-100/70 font-semibold text-xs transition-all shadow-xs cursor-pointer active:scale-95"
+                  title="Exit & Lock Post"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Exit & Lock</span>
+                </button>
+              </div>
+              <div className="text-zinc-950 font-normal leading-relaxed">{unlockedContent}</div>
+            </div>
+            <p className="text-[11px] text-zinc-400 italic text-right pr-1">
+              * Click anywhere outside or tap the exit arrow to automatically lock this post.
+            </p>
+          </div>
         ) : (
+          /* Standard Public Post */
           <div className="text-zinc-900 text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words font-normal my-3">
             {post.content}
           </div>
         )}
 
-        {/* Post Actions Bar: Like, Comments Toggle, Share */}
-        <div className="flex items-center justify-between pt-3 mt-2 border-t border-zinc-100 text-xs text-zinc-600 gap-1">
-          <div className="flex items-center gap-1 sm:gap-2">
-            {/* Like Button */}
-            <button
-              type="button"
-              id={`btn-like-post-${post.id}`}
-              onClick={handleLike}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-all ${
-                isLiked
-                  ? 'text-zinc-900 bg-zinc-100 border border-zinc-200/80 shadow-xs font-semibold'
-                  : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent'
-              }`}
-              title={isLiked ? 'Unlike this post' : 'Like this post'}
-            >
-              <Heart
-                className={`w-4 h-4 transition-transform duration-200 ${
-                  isLiked ? 'fill-zinc-900 text-zinc-900 scale-110' : 'group-hover:scale-110'
+        {/* Post Actions Bar: Like, Comments Toggle, Share (Hidden for Private Posts) */}
+        {!isPrivatePost ? (
+          <div className="flex items-center justify-between pt-3 mt-2 border-t border-zinc-100 text-xs text-zinc-600 gap-1">
+            <div className="flex items-center gap-1 sm:gap-2">
+              {/* Like Button */}
+              <button
+                type="button"
+                id={`btn-like-post-${post.id}`}
+                onClick={handleLike}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-all ${
+                  isLiked
+                    ? 'text-zinc-900 bg-zinc-100 border border-zinc-200/80 shadow-xs font-semibold'
+                    : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 border border-transparent'
                 }`}
-              />
-              <span>{likesCount > 0 ? `${formatCompactNumber(likesCount)} Likes` : 'Like'}</span>
-            </button>
+                title={isLiked ? 'Unlike this post' : 'Like this post'}
+              >
+                <Heart
+                  className={`w-4 h-4 transition-transform duration-200 ${
+                    isLiked ? 'fill-zinc-900 text-zinc-900 scale-110' : 'group-hover:scale-110'
+                  }`}
+                />
+                <span>{likesCount > 0 ? `${formatCompactNumber(likesCount)} Likes` : 'Like'}</span>
+              </button>
 
-            {/* Comments Toggle Button */}
+              {/* Comments Toggle Button */}
+              <button
+                type="button"
+                id={`btn-comments-post-${post.id}`}
+                onClick={handleToggleComments}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-colors ${
+                  isCommentsOpen
+                    ? 'bg-black text-white font-semibold'
+                    : 'bg-zinc-900 text-white hover:bg-black'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4 text-white" />
+                <span>{commentsCount > 0 ? `${commentsCount} Comments` : 'Comment'}</span>
+                {isCommentsOpen ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-zinc-300" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-zinc-300" />
+                )}
+              </button>
+            </div>
+
+            {/* Share Button */}
             <button
               type="button"
-              id={`btn-comments-post-${post.id}`}
-              onClick={handleToggleComments}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-medium transition-colors ${
-                isCommentsOpen
-                  ? 'bg-black text-white font-semibold'
-                  : 'bg-zinc-900 text-white hover:bg-black'
-              }`}
+              onClick={async () => {
+                try {
+                  const url = `${window.location.origin}${window.location.pathname}?post=${post.serialNumber}`;
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  // fallback
+                }
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900 transition-colors"
+              title="Share post link"
             >
-              <MessageSquare className="w-4 h-4 text-white" />
-              <span>{commentsCount > 0 ? `${commentsCount} Comments` : 'Comment'}</span>
-              {isCommentsOpen ? (
-                <ChevronUp className="w-3.5 h-3.5 text-zinc-300" />
+              {copied ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span className="text-emerald-700 font-semibold">Copied link</span>
+                </>
               ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-300" />
+                <>
+                  <Share2 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Share</span>
+                </>
               )}
             </button>
           </div>
-        </div>
+        ) : (
+          /* Private post footer: Clean minimal footer without like or comment */
+          <div className="flex items-center justify-between pt-2.5 mt-1 border-t border-zinc-100 text-[11px] text-zinc-400">
+            <span className="flex items-center gap-1">
+              <Lock className="w-3 h-3 text-amber-600" />
+              <span>Private confidential post • No likes or comments</span>
+            </span>
+
+            {/* Share Button */}
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const url = `${window.location.origin}${window.location.pathname}?post=${post.serialNumber}`;
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  // fallback
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-zinc-100 text-zinc-500 hover:text-zinc-800 transition-colors"
+              title="Share post link"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-semibold">Copied link</span>
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Share</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Expandable Comments Drawer */}
-      {isCommentsOpen && (
+      {/* Expandable Comments Drawer (Only rendered for non-private posts) */}
+      {!isPrivatePost && isCommentsOpen && (
         <div className="border-t border-zinc-100 bg-zinc-50/70 p-4 sm:p-5 transition-all">
           <div className="space-y-3 mb-4">
             <h4 className="text-xs font-bold text-zinc-800 uppercase tracking-wider flex items-center gap-2">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
 import { InstallBanner } from './components/InstallBanner';
-import { CreatePostCard } from './components/CreatePostCard';
+import { CreatePostCard, PublishPostOptions } from './components/CreatePostCard';
 import { PostCard } from './components/PostCard';
 import { InfoModal } from './components/InfoModal';
 import { DownloadModal } from './components/DownloadModal';
@@ -10,7 +10,6 @@ import { soundPlayer } from './lib/audio';
 import { checkIsSimilarPost } from './lib/similarity';
 import { computeCurrentLikesForPost } from './lib/likesEngine';
 import { computeCurrentCommentsForPost } from './lib/commentsEngine';
-import { startAutoPublishEngine, stopAutoPublishEngine, checkAndBackfillOfflinePosts } from './lib/autoPublisher';
 import { initNotificationScheduler } from './lib/notificationScheduler';
 import {
   getOrCreateAnonymousToken,
@@ -23,8 +22,6 @@ import {
   togglePostLike,
   addPostReaction,
   fetchPostBySerial,
-  deletePostsBySerials,
-  deleteBengaliPosts,
   updateSerialPost,
   deleteSerialPost,
 } from './lib/firebase';
@@ -36,50 +33,10 @@ import {
   ArrowDown,
 } from 'lucide-react';
 
-const INITIAL_FALLBACK_POSTS: SerialPost[] = [
-  {
-    id: 'post-init-1',
-    serialNumber: 1,
-    content: 'Welcome to the Anonymous Serial Post Board!\nEvery post is assigned a permanent, strictly sequential serial number (#1, #2, #3...). You can like, comment, and react anonymously!',
-    tag: 'Thoughts',
-    authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 60 * 8, // 8 hours ago (Stopped at target 50k!)
-    likesCount: 50000,
-    targetLikes: 50000,
-    commentsCount: 142,
-    likedBy: [],
-    reactions: { '🔥': 820, '❤️': 640, '💡': 410 },
-  },
-  {
-    id: 'post-init-2',
-    serialNumber: 2,
-    content: 'What is a book, article, or idea that completely changed the way you think about life or work?',
-    tag: 'Question',
-    authorToken: 'system',
-    createdAt: Date.now() - 1000 * 60 * 60 * 2, // 2 hours ago (Growing towards 20k target!)
-    likesCount: 5200,
-    targetLikes: 20000,
-    commentsCount: 98,
-    likedBy: [],
-    reactions: { '💡': 930, '👏': 310 },
-  },
-];
-
-const FILTER_TAGS = ['All', 'Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
+const FILTER_TAGS = ['All', 'Private Locked', 'Thoughts', 'Question', 'Story', 'Tech', 'Idea', 'General'];
 
 export default function App() {
-  const [posts, setPosts] = useState<SerialPost[]>(() => {
-    try {
-      const cached = localStorage.getItem('anon_local_posts_cache');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return INITIAL_FALLBACK_POSTS;
-  });
+  const [posts, setPosts] = useState<SerialPost[]>([]);
 
   const [onlineCount, setOnlineCount] = useState<number>(
     () => Math.floor(Math.random() * (100000 - 50000 + 1)) + 50000
@@ -164,15 +121,22 @@ export default function App() {
     return Math.max(...posts.map((p) => p.serialNumber)) + 1;
   }, [posts]);
 
-  // Persist local cache
+  // Initialize notification scheduler and clear any stale local cache
   useEffect(() => {
     initNotificationScheduler();
+    try {
+      localStorage.removeItem('anon_local_posts_cache');
+    } catch {
+      // ignore
+    }
   }, []);
 
   useEffect(() => {
     try {
       if (posts.length > 0) {
         localStorage.setItem('anon_local_posts_cache', JSON.stringify(posts.slice(0, 300)));
+      } else {
+        localStorage.removeItem('anon_local_posts_cache');
       }
     } catch {
       // ignore
@@ -190,7 +154,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = subscribeToPosts(
       (realtimePosts) => {
-        if (realtimePosts.length > 0) {
+        if (realtimePosts && realtimePosts.length > 0) {
           if (
             previousPostsCountRef.current > 0 &&
             realtimePosts.length > previousPostsCountRef.current
@@ -206,15 +170,15 @@ export default function App() {
             }
           }
           previousPostsCountRef.current = realtimePosts.length;
-          // Compute age-based dynamic likes & comments for each post
-          const processed = realtimePosts.map((p) => ({
-            ...p,
-            likesCount: computeCurrentLikesForPost(p, authorToken),
-            commentsCount: computeCurrentCommentsForPost(p),
-          }));
-          setPosts(processed);
-          // Auto-backfill any missed posts generated during offline periods when tab was closed
-          checkAndBackfillOfflinePosts(realtimePosts);
+          setPosts(realtimePosts);
+        } else {
+          previousPostsCountRef.current = 0;
+          setPosts([]);
+          try {
+            localStorage.removeItem('anon_local_posts_cache');
+          } catch {
+            // ignore
+          }
         }
       },
       (err) => {
@@ -222,44 +186,12 @@ export default function App() {
       }
     );
 
-    const timer = setInterval(() => {
-      setOnlineCount((c) => {
-        const delta = (Math.random() > 0.48 ? 1 : -1) * Math.floor(Math.random() * 300 + 80);
-        const next = c + delta;
-        if (next < 50000) return 50000 + Math.floor(Math.random() * 400);
-        if (next > 100000) return 100000 - Math.floor(Math.random() * 400);
-        return next;
-      });
-    }, 3500);
-
-    // Live likes & comments progression timer (recalculates based on age, stopping after target duration)
-    const progressionTimer = setInterval(() => {
-      setPosts((prevPosts) => {
-        if (prevPosts.length === 0) return prevPosts;
-        return prevPosts.map((p) => ({
-          ...p,
-          likesCount: computeCurrentLikesForPost(p, authorToken),
-          commentsCount: computeCurrentCommentsForPost(p),
-        }));
-      });
-    }, 3000);
-
     return () => {
       unsubscribe();
-      clearInterval(timer);
-      clearInterval(progressionTimer);
     };
   }, [authorToken, soundEnabled]);
 
-  // Auto-publishing engine: Publishes new user posts every 2-3 mins
-  useEffect(() => {
-    deleteBengaliPosts();
-    deletePostsBySerials([3, 4, 5]);
-    startAutoPublishEngine();
-    return () => {
-      stopAutoPublishEngine();
-    };
-  }, []);
+
 
   // Serial search lookup
   useEffect(() => {
@@ -292,11 +224,17 @@ export default function App() {
   }, [searchQuery, posts]);
 
   // Publish a new post
-  const handlePublishPost = async (content: string, tag?: string): Promise<boolean> => {
-    // Duplicate / Similarity Protection Check
-    const similarityResult = checkIsSimilarPost(content, posts);
-    if (similarityResult.isDuplicate) {
-      return false;
+  const handlePublishPost = async (
+    content: string,
+    tag?: string,
+    options?: PublishPostOptions
+  ): Promise<boolean> => {
+    // Duplicate / Similarity Protection Check (only if public)
+    if (!options?.isPrivate) {
+      const similarityResult = checkIsSimilarPost(content, posts);
+      if (similarityResult.isDuplicate) {
+        return false;
+      }
     }
 
     setIsPublishing(true);
@@ -305,7 +243,11 @@ export default function App() {
     }
 
     try {
-      const newPost = await createSerialPost(content, authorToken, tag);
+      const newPost = await createSerialPost(content, authorToken, tag, undefined, {
+        isPrivate: options?.isPrivate,
+        passcodeHash: options?.passcodeHash,
+        privateHint: options?.privateHint,
+      });
       // Optimistic update
       setPosts((prev) => {
         if (prev.some((p) => p.id === newPost.id || p.serialNumber === newPost.serialNumber)) {
@@ -328,6 +270,9 @@ export default function App() {
         commentsCount: 0,
         likedBy: [],
         reactions: {},
+        isPrivate: options?.isPrivate,
+        passcodeHash: options?.passcodeHash,
+        privateHint: options?.privateHint,
       };
       setPosts((prev) => [...prev, fallbackPost]);
       return true;
@@ -408,14 +353,15 @@ export default function App() {
     }
   };
 
-  // Delete a post within 30 min
+  // Delete a post (public posts within 30 min, private posts anytime)
   const handleDeletePost = async (
     postId: string,
     postAuthorToken: string,
-    createdAt: number
+    createdAt: number,
+    isPrivate?: boolean
   ): Promise<{ success: boolean; message?: string }> => {
     try {
-      const res = await deleteSerialPost(postId, authorToken, postAuthorToken, createdAt);
+      const res = await deleteSerialPost(postId, authorToken, postAuthorToken, createdAt, isPrivate);
       if (res.success) {
         setPosts((prev) => prev.filter((p) => p.id !== postId));
       }
@@ -431,7 +377,11 @@ export default function App() {
 
     // 1. Tag filtering
     if (selectedTagFilter !== 'All') {
-      result = result.filter((p) => p.tag === selectedTagFilter);
+      if (selectedTagFilter === 'Private Locked') {
+        result = result.filter((p) => Boolean(p.isPrivate));
+      } else {
+        result = result.filter((p) => p.tag === selectedTagFilter);
+      }
     }
 
     // 2. Search query filtering

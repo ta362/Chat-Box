@@ -26,6 +26,9 @@ export interface SerialPost {
   likedBy?: string[];
   reactions?: Record<string, number>;
   tag?: string;
+  isPrivate?: boolean;
+  passcodeHash?: string;
+  privateHint?: string;
 }
 
 // Backward compatibility alias for any older references
